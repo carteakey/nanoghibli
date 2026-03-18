@@ -4,7 +4,7 @@ import glob
 import json
 from scenedetect import detect, ContentDetector
 
-def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold: float = 20.0, scene_threshold: float = 35.0, max_duration: float = None):
+def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold: float = 20.0, scene_threshold: float = 35.0, max_duration: float = None, skip_black_frames: bool = False):
     """
     Extract frames from a video and group them into scenes based on motion/scene changes.
     """
@@ -77,6 +77,10 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
                 break
 
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            if skip_black_frames and gray.mean() < 5.0:
+                continue
+
             is_keyframe = False
 
             if prev_frame_gray is None:

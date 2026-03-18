@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--max_duration", type=float, default=None, help="Maximum duration (in seconds) to process from the video.")
     parser.add_argument("--use_veo", action="store_true", help="Use Veo 3.1 to generate a fluid video for each scene.")
     parser.add_argument("--skip_stylize", action="store_true", help="Skip extraction and stylization and proceed directly to assembly using existing frames.")
+    parser.add_argument("--skip_black_frames", action="store_true", help="Skip black frames during extraction to preserve timing without sampling pure black.")
     args = parser.parse_args()
 
     # Load environment variables
@@ -56,7 +57,7 @@ def main():
             if not os.path.isfile(args.input):
                 print(f"Error: Input video file not found: {args.input}")
                 return
-            scenes, video_fps = extract_scenes_from_video(args.input, frames_dir, args.threshold, 35.0, args.max_duration)
+            scenes, video_fps = extract_scenes_from_video(args.input, frames_dir, args.threshold, 35.0, args.max_duration, args.skip_black_frames)
             print(f"Original video FPS was: {video_fps}. Target FPS is {fps}.")
         elif args.mode == "photo":
             if not os.path.isdir(args.input):
