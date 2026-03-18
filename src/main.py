@@ -176,7 +176,28 @@ def main():
                     ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path, "-c", "copy", veo_final_output],
                     check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
-                print(f"Done! Veo Video output saved to: {veo_final_output}")
+                print(f"Initial concatenated video saved. Now adding original audio...")
+
+                final_with_audio_path = veo_final_output.replace(".mp4", "_with_audio.mp4")
+                
+                # Command to extract audio from original input and lay it over the generated video.
+                # Since Veo video durations might not match exactly, we'll use -shortest to trim to the shortest stream.
+                subprocess.run(
+                    [
+                        "ffmpeg", "-y", 
+                        "-i", veo_final_output, 
+                        "-i", args.input, 
+                        "-c:v", "copy", 
+                        "-c:a", "aac", 
+                        "-map", "0:v:0", 
+                        "-map", "1:a:0", 
+                        "-shortest", 
+                        final_with_audio_path
+                    ],
+                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                print(f"Done! Veo Video with original audio saved to: {final_with_audio_path}")
+
             except subprocess.CalledProcessError as e:
                 print(f"Error concatenating videos with ffmpeg. Check if ffmpeg is installed properly.")
                 print("You can manually concatenate the segments located in:", veo_dir)
