@@ -2,6 +2,7 @@ import os
 import cv2
 import glob
 import json
+from scenedetect import detect, ContentDetector
 
 def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold: float = 20.0, scene_threshold: float = 35.0, max_duration: float = None):
     """
@@ -29,76 +30,81 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
     if max_duration is not None:
         max_frames = int(fps * max_duration)
 
-    frame_count = 0
+    print(f"Detecting scene boundaries in {video_path}...")
+    # Use ContentDetector with the provided scene_threshold
+    scene_list = detect(video_path, ContentDetector(threshold=scene_threshold))
+
+    # If no scenes were detected (e.g., single continuous shot), manually create one scene
+    if not scene_list:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            total_frames = max_frames if max_frames else 1000
+        scene_list_frames = [(0, total_frames)]
+    else:
+        # Convert FrameTimecode to frame numbers
+        scene_list_frames = [(s[0].get_frames(), s[1].get_frames()) for s in scene_list]
+
+    # Filter/truncate scenes if max_frames is set
+    filtered_scene_list = []
+    if max_frames is not None:
+        for start_f, end_f in scene_list_frames:
+            if start_f >= max_frames:
+                break
+            if end_f > max_frames:
+                end_f = max_frames
+            filtered_scene_list.append((start_f, end_f))
+        scene_list_frames = filtered_scene_list
+
+    print(f"Found {len(scene_list_frames)} scenes using PySceneDetect.")
+
     saved_count = 0
-    prev_frame_gray = None
-
     scenes = []
-    current_scene = None
 
-    while True:
-        if max_frames is not None and frame_count >= max_frames:
-            break
-
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    for i, (start_f, end_f) in enumerate(scene_list_frames):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
         
-        is_scene_cut = False
-        is_keyframe = False
+        current_scene = {
+            "scene_index": i,
+            "start_frame": start_f,
+            "end_frame": end_f,
+            "frames": []
+        }
+        
+        prev_frame_gray = None
+        for frame_count in range(start_f, end_f):
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        if prev_frame_gray is None:
-            is_scene_cut = True
-            is_keyframe = True
-        else:
-            diff = cv2.absdiff(prev_frame_gray, gray)
-            mean_diff = diff.mean()
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            is_keyframe = False
 
-            if mean_diff > scene_threshold:
-                is_scene_cut = True
+            if prev_frame_gray is None:
+                # First frame of the scene is always a keyframe
                 is_keyframe = True
-            elif mean_diff > motion_threshold:
-                is_keyframe = True
+            else:
+                diff = cv2.absdiff(prev_frame_gray, gray)
+                mean_diff = diff.mean()
+                if mean_diff > motion_threshold:
+                    is_keyframe = True
 
-        if is_scene_cut:
-            if current_scene is not None:
-                if len(current_scene["frames"]) < 3:
-                    # Not enough frames, just continue adding to the current scene instead of cutting
-                    is_scene_cut = False
-                else:
-                    current_scene["end_frame"] = frame_count
-                    scenes.append(current_scene)
-                    current_scene = None
+            if is_keyframe:
+                frame_name = f"frame_{frame_count:06d}.jpg"
+                out_path = os.path.join(output_dir, frame_name)
+                cv2.imwrite(out_path, frame)
+                
+                current_scene["frames"].append({
+                    "path": out_path,
+                    "original_frame_index": frame_count
+                })
+                saved_count += 1
+                prev_frame_gray = gray
 
-            if is_scene_cut:
-                current_scene = {
-                    "scene_index": len(scenes),
-                    "start_frame": frame_count,
-                    "frames": []
-                }
-
-        if is_keyframe and current_scene is not None:
-            frame_name = f"frame_{frame_count:06d}.jpg"
-            out_path = os.path.join(output_dir, frame_name)
-            cv2.imwrite(out_path, frame)
-            
-            current_scene["frames"].append({
-                "path": out_path,
-                "original_frame_index": frame_count
-            })
-            saved_count += 1
-            prev_frame_gray = gray
-
-        frame_count += 1
-
-    if current_scene is not None:
-        current_scene["end_frame"] = frame_count
-        scenes.append(current_scene)
+        if current_scene["frames"]:
+            scenes.append(current_scene)
 
     cap.release()
-    print(f"Extracted {saved_count} frames across {len(scenes)} scenes (total {frame_count} frames).")
+    print(f"Extracted {saved_count} frames across {len(scenes)} scenes.")
     
     # Save metadata
     with open(scenes_file, "w") as f:

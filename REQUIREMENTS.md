@@ -2,6 +2,7 @@
 
 ## 1. Frame Extraction & Input
 - **Videos**: Capture scale stills of every moving frame (whenever the frame changes).
+- Utilizes PySceneDetect (`scenedetect[opencv]`) for reliable scene cut detection.
 - **Photos**: Take in photos from a folder.
 
 ## 2. Stylization
