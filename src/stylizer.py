@@ -1,9 +1,13 @@
 import os
+import time
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
 from PIL import Image
 from tqdm import tqdm
+from typing import List, Optional
 
-# We will read GEMINI_API_KEY from environment (handled in main.py via dotenv)
+from models import FrameInfo
 
 GHIBLI_PROMPT = (
     "Modify this image into a Studio Ghibli homage. "
@@ -14,10 +18,50 @@ GHIBLI_PROMPT = (
     "CRITICAL: You must follow the source image exactly. Do not hallucinate, invent, or add any new elements, objects, text, or details that are not explicitly present in the original image. Do not fill in any blanks."
 )
 
-def stylize_frames(frames, output_dir: str):
+def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir: str, max_retries: int = 3) -> Optional[FrameInfo]:
+    input_path = frame_info["path"]
+    orig_index = frame_info.get("original_frame_index", 0)
+    out_name = f"stylized_{orig_index:06d}.png"
+    out_path = os.path.join(output_dir, out_name)
+    
+    if os.path.exists(out_path):
+        return {
+            "path": out_path,
+            "original_frame_index": orig_index
+        }
+        
+    for attempt in range(max_retries):
+        try:
+            image = Image.open(input_path)
+            response = client.models.generate_content(
+                model="gemini-3.1-flash-image-preview",
+                contents=[GHIBLI_PROMPT, image],
+            )
+            
+            for part in response.parts:
+                if getattr(part, 'thought', False):
+                    continue
+                if part.inline_data is not None:
+                    out_img = part.as_image()
+                    out_img.save(out_path)
+                    return {
+                        "path": out_path,
+                        "original_frame_index": orig_index
+                    }
+                    
+            logging.warning(f"No image returned for {input_path} on attempt {attempt+1}")
+        except Exception as e:
+            logging.warning(f"Error stylizing {input_path} on attempt {attempt+1}: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt) # Exponential backoff
+            
+    logging.error(f"Failed to stylize {input_path} after {max_retries} attempts.")
+    return None
+
+def stylize_frames(frames: List[FrameInfo], output_dir: str, max_workers: int = 4) -> List[FrameInfo]:
     """
     Takes a list of frame dicts (e.g. [{"path": ..., "original_frame_index": ...}])
-    and stylizes each using the Gemini API.
+    and stylizes each concurrently using the Gemini API.
     Saves outputs in output_dir.
     Returns a list of stylized frame dicts.
     """
@@ -25,46 +69,15 @@ def stylize_frames(frames, output_dir: str):
         os.makedirs(output_dir)
 
     client = genai.Client()
-    
-    stylized_frames = []
+    stylized_frames: List[FrameInfo] = []
 
-    print(f"Stylizing {len(frames)} frames...")
+    logging.info(f"Stylizing {len(frames)} frames with up to {max_workers} concurrent workers...")
     
-    for i, frame_info in enumerate(tqdm(frames)):
-        input_path = frame_info["path"]
-        orig_index = frame_info.get("original_frame_index", i)
-        
-        try:
-            image = Image.open(input_path)
-            
-            response = client.models.generate_content(
-                model="gemini-3.1-flash-image-preview",
-                contents=[GHIBLI_PROMPT, image],
-            )
-            
-            # The response could contain multiple parts, we look for the image
-            saved = False
-            for part in response.parts:
-                if getattr(part, 'thought', False):
-                    continue # Skip thoughts
-                
-                if part.inline_data is not None:
-                    out_img = part.as_image()
-                    out_name = f"stylized_{orig_index:06d}.png"
-                    out_path = os.path.join(output_dir, out_name)
-                    out_img.save(out_path)
-                    
-                    stylized_frames.append({
-                        "path": out_path,
-                        "original_frame_index": orig_index
-                    })
-                    saved = True
-                    break # Assuming one image per response
-            
-            if not saved:
-                print(f"Warning: No image returned for {input_path}")
-                
-        except Exception as e:
-            print(f"Error stylizing {input_path}: {e}")
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(process_single_frame, client, f, output_dir): f for f in frames}
+        for future in tqdm(as_completed(futures), total=len(frames)):
+            result = future.result()
+            if result:
+                stylized_frames.append(result)
 
     return stylized_frames

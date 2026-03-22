@@ -1,14 +1,18 @@
 import cv2
 import os
+import logging
 from tqdm import tqdm
+from typing import List
 
-def create_video_from_frames(frames, output_path: str, fps: float = 30.0):
+from models import FrameInfo
+
+def create_video_from_frames(frames: List[FrameInfo], output_path: str, fps: float = 30.0):
     """
     Assembles a list of frame dicts into an mp4 video.
     frames: list of dicts [{"path": ..., "original_frame_index": ...}]
     """
     if not frames:
-        print("No frames to assemble.")
+        logging.warning("No frames to assemble.")
         return
 
     # Sort frames by original index to maintain order
@@ -34,7 +38,7 @@ def create_video_from_frames(frames, output_path: str, fps: float = 30.0):
 
     out = cv2.VideoWriter(output_path, fourcc, fps, size)
 
-    print(f"Assembling video to {output_path} at {fps} FPS...")
+    logging.info(f"Assembling video to {output_path} at {fps} FPS...")
     for frame_info in tqdm(frames):
         img_path = frame_info["path"]
         img = cv2.imread(img_path)
@@ -45,7 +49,7 @@ def create_video_from_frames(frames, output_path: str, fps: float = 30.0):
                 img = cv2.resize(img, size)
             out.write(img)
         else:
-            print(f"Warning: Could not read frame to write {img_path}")
+            logging.warning(f"Could not read frame to write {img_path}")
 
     out.release()
-    print("Video assembly complete.")
+    logging.info("Video assembly complete.")

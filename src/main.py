@@ -4,12 +4,21 @@ import glob
 import uuid
 import subprocess
 import json
+import logging
 from dotenv import load_dotenv
 
 from extractor import extract_scenes_from_video, get_photos_from_directory
 from stylizer import stylize_frames
 from animator import create_video_from_frames
 from veo_animator import generate_scene_video
+
+def setup_logging(verbose: bool):
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S"
+    )
 
 def main():
     parser = argparse.ArgumentParser(description="NanoGhibli: Convert videos/photos to Ghibli-style trailers.")
@@ -22,16 +31,19 @@ def main():
     parser.add_argument("--use_veo", action="store_true", help="Use Veo 3.1 to generate a fluid video for each scene.")
     parser.add_argument("--skip_stylize", action="store_true", help="Skip extraction and stylization and proceed directly to assembly using existing frames.")
     parser.add_argument("--skip_black_frames", action="store_true", help="Skip black frames during extraction to preserve timing without sampling pure black.")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose debug logging.")
     args = parser.parse_args()
+
+    setup_logging(args.verbose)
 
     # Load environment variables
     load_dotenv()
     if not os.getenv("GEMINI_API_KEY"):
-        print("Error: GEMINI_API_KEY environment variable not set. Please set it in .env or your shell.")
+        logging.error("GEMINI_API_KEY environment variable not set. Please set it in .env or your shell.")
         return
 
     session_id = args.session_id if args.session_id else uuid.uuid4().hex[:8]
-    print(f"=== Session ID: {session_id} ===")
+    logging.info(f"=== Session ID: {session_id} ===")
 
     # Create directories for this session
     base_dir = os.path.join("data/output", session_id)
@@ -52,24 +64,24 @@ def main():
     video_fps = 30.0
 
     if not args.skip_stylize:
-        print("\n=== Phase 1: Frame Extraction ===")
+        logging.info("=== Phase 1: Frame Extraction ===")
         if args.mode == "video":
             if not os.path.isfile(args.input):
-                print(f"Error: Input video file not found: {args.input}")
+                logging.error(f"Input video file not found: {args.input}")
                 return
             scenes, video_fps = extract_scenes_from_video(args.input, frames_dir, args.threshold, 35.0, args.max_duration, args.skip_black_frames)
-            print(f"Original video FPS was: {video_fps}. Target FPS is {fps}.")
+            logging.info(f"Original video FPS was: {video_fps}. Target FPS is {fps}.")
         elif args.mode == "photo":
             if not os.path.isdir(args.input):
-                print(f"Error: Input directory not found: {args.input}")
+                logging.error(f"Input directory not found: {args.input}")
                 return
             scenes, video_fps = get_photos_from_directory(args.input)
 
         if not scenes:
-            print("No scenes/frames extracted. Exiting.")
+            logging.warning("No scenes/frames extracted. Exiting.")
             return
 
-        print("\n=== Phase 2: Stylization (Nano Banana 2) ===")
+        logging.info("=== Phase 2: Stylization (Nano Banana 2) ===")
         frames_to_stylize = []
         for scene in scenes:
             for f in scene["frames"]:
@@ -79,7 +91,7 @@ def main():
         stylized_frames = []
         
         if len(existing_stylized) >= len(frames_to_stylize):
-            print(f"Found {len(existing_stylized)} existing stylized frames. Skipping stylization...")
+            logging.info(f"Found {len(existing_stylized)} existing stylized frames. Skipping stylization...")
             stylized_frames = [{"path": p, "original_frame_index": int(os.path.basename(p).split('_')[1].split('.')[0])} for p in existing_stylized]
         else:
             frames_needed = []
@@ -95,7 +107,7 @@ def main():
                     frames_needed.append(f)
                     
             if frames_needed:
-                print(f"Stylizing {len(frames_needed)} remaining frames...")
+                logging.info(f"Stylizing {len(frames_needed)} remaining frames...")
                 new_stylized = stylize_frames(frames_needed, stylized_dir)
                 stylized_frames.extend(new_stylized)
             
@@ -109,13 +121,13 @@ def main():
                 scenes = data["scenes"]
                 video_fps = data["fps"]
         else:
-            print(f"Error: Could not find {scenes_file} to resume scenes.")
+            logging.error(f"Could not find {scenes_file} to resume scenes.")
             return
             
         stylized_files = sorted(glob.glob(os.path.join(stylized_dir, "*.png")))
         stylized_frames = [{"path": p, "original_frame_index": int(os.path.basename(p).split('_')[1].split('.')[0])} for p in stylized_files]
         if not stylized_frames:
-             print("No existing stylized frames found. Exiting.")
+             logging.warning("No existing stylized frames found. Exiting.")
              return
 
     # Map stylized paths back to scenes
@@ -129,10 +141,10 @@ def main():
                     "original_frame_index": f["original_frame_index"]
                 })
 
-    print("\n=== Phase 3: Assembly & Output ===")
+    logging.info("=== Phase 3: Assembly & Output ===")
     if args.mode == "video":
         if args.use_veo:
-            print(f"Generating Veo segments for {len(scenes)} scenes...")
+            logging.info(f"Generating Veo segments for {len(scenes)} scenes...")
             veo_segments = []
             
             for scene in scenes:
@@ -140,7 +152,7 @@ def main():
                 scene_stylized = scene["stylized_frames"]
                 
                 if not scene_stylized:
-                    print(f"Skipping scene {idx}, no stylized frames.")
+                    logging.warning(f"Skipping scene {idx}, no stylized frames.")
                     continue
                 
                 # Calculate duration based on original frame count
@@ -159,10 +171,10 @@ def main():
                 veo_segments.append(seg_path)
                 
                 if os.path.exists(seg_path):
-                    print(f"Segment {seg_name} already exists. Skipping.")
+                    logging.info(f"Segment {seg_name} already exists. Skipping.")
                     continue
                 
-                print(f"Generating Scene {idx}/{len(scenes)}: original length {orig_sec:.1f}s -> requesting {dur_str}s Veo video")
+                logging.info(f"Generating Scene {idx}/{len(scenes)}: original length {orig_sec:.1f}s -> requesting {dur_str}s Veo video")
                 generate_scene_video(scene_stylized, seg_path, duration_seconds=dur_str)
             
             # Concat all segments using ffmpeg
@@ -171,18 +183,16 @@ def main():
                 for seg in veo_segments:
                     f.write(f"file '{os.path.abspath(seg)}'\n")
             
-            print(f"\nConcatenating segments into final Veo trailer...")
+            logging.info("Concatenating segments into final Veo trailer...")
             try:
                 subprocess.run(
                     ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path, "-c", "copy", veo_final_output],
                     check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
-                print(f"Initial concatenated video saved. Now adding original audio...")
+                logging.info("Initial concatenated video saved. Now adding original audio...")
 
                 final_with_audio_path = veo_final_output.replace(".mp4", "_with_audio.mp4")
                 
-                # Command to extract audio from original input and lay it over the generated video.
-                # Since Veo video durations might not match exactly, we'll use -shortest to trim to the shortest stream.
                 subprocess.run(
                     [
                         "ffmpeg", "-y", 
@@ -197,20 +207,43 @@ def main():
                     ],
                     check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
-                print(f"Done! Veo Video with original audio saved to: {final_with_audio_path}")
+                logging.info(f"Done! Veo Video with original audio saved to: {final_with_audio_path}")
 
-            except subprocess.CalledProcessError as e:
-                print(f"Error concatenating videos with ffmpeg. Check if ffmpeg is installed properly.")
-                print("You can manually concatenate the segments located in:", veo_dir)
+            except subprocess.CalledProcessError:
+                logging.error("Error concatenating videos with ffmpeg. Check if ffmpeg is installed properly.")
+                logging.info(f"You can manually concatenate the segments located in: {veo_dir}")
             except FileNotFoundError:
-                print(f"ffmpeg not found. Please install ffmpeg to concatenate the video segments.")
-                print("Segments are located in:", veo_dir)
+                logging.error("ffmpeg not found. Please install ffmpeg to concatenate the video segments.")
+                logging.info(f"Segments are located in: {veo_dir}")
 
         else:
             create_video_from_frames(stylized_frames, final_output, args.fps)
-            print(f"\nDone! Video output saved to: {final_output}")
+            logging.info(f"Initial assembled video saved to: {final_output}. Now adding original audio...")
+            
+            final_with_audio_path = final_output.replace(".mp4", "_with_audio.mp4")
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg", "-y", 
+                        "-i", final_output, 
+                        "-i", args.input, 
+                        "-c:v", "copy", 
+                        "-c:a", "aac", 
+                        "-map", "0:v:0", 
+                        "-map", "1:a:0", 
+                        "-shortest", 
+                        final_with_audio_path
+                    ],
+                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                logging.info(f"Done! Standard Video with original audio saved to: {final_with_audio_path}")
+            except subprocess.CalledProcessError:
+                logging.error("Error adding audio with ffmpeg. The silent video is available.")
+            except FileNotFoundError:
+                logging.error("ffmpeg not found. The silent video is available.")
+
     else:
-        print(f"\nDone! Stylized photos saved to: {stylized_dir}")
+        logging.info(f"Done! Stylized photos saved to: {stylized_dir}")
 
 if __name__ == "__main__":
     main()

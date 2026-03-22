@@ -2,9 +2,13 @@ import os
 import cv2
 import glob
 import json
+import logging
+from typing import Tuple, List
 from scenedetect import detect, ContentDetector
 
-def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold: float = 20.0, scene_threshold: float = 35.0, max_duration: float = None, skip_black_frames: bool = False):
+from models import Scene, FrameInfo
+
+def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold: float = 20.0, scene_threshold: float = 35.0, max_duration: float = None, skip_black_frames: bool = False) -> Tuple[List[Scene], float]:
     """
     Extract frames from a video and group them into scenes based on motion/scene changes.
     """
@@ -13,7 +17,7 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
 
     scenes_file = os.path.join(output_dir, "scenes.json")
     if os.path.exists(scenes_file):
-        print(f"Loading existing scenes from {scenes_file}...")
+        logging.info(f"Loading existing scenes from {scenes_file}...")
         with open(scenes_file, "r") as f:
             data = json.load(f)
             return data["scenes"], data["fps"]
@@ -30,7 +34,7 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
     if max_duration is not None:
         max_frames = int(fps * max_duration)
 
-    print(f"Detecting scene boundaries in {video_path}...")
+    logging.info(f"Detecting scene boundaries in {video_path}...")
     # Use ContentDetector with the provided scene_threshold
     scene_list = detect(video_path, ContentDetector(threshold=scene_threshold))
 
@@ -55,15 +59,15 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
             filtered_scene_list.append((start_f, end_f))
         scene_list_frames = filtered_scene_list
 
-    print(f"Found {len(scene_list_frames)} scenes using PySceneDetect.")
+    logging.info(f"Found {len(scene_list_frames)} scenes using PySceneDetect.")
 
     saved_count = 0
-    scenes = []
+    scenes: List[Scene] = []
 
     for i, (start_f, end_f) in enumerate(scene_list_frames):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
         
-        current_scene = {
+        current_scene: Scene = {
             "scene_index": i,
             "start_frame": start_f,
             "end_frame": end_f,
@@ -76,7 +80,9 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
             if not ret:
                 break
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Downscale for faster motion detection processing
+            small_frame = cv2.resize(frame, (320, 180))
+            gray = cv2.cvtColor(small_frame, cv2.COLOR_BGR2GRAY)
             
             if skip_black_frames and gray.mean() < 5.0:
                 continue
@@ -95,7 +101,7 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
             if is_keyframe:
                 frame_name = f"frame_{frame_count:06d}.jpg"
                 out_path = os.path.join(output_dir, frame_name)
-                cv2.imwrite(out_path, frame)
+                cv2.imwrite(out_path, frame) # Save the original full-res frame
                 
                 current_scene["frames"].append({
                     "path": out_path,
@@ -108,7 +114,7 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
             scenes.append(current_scene)
 
     cap.release()
-    print(f"Extracted {saved_count} frames across {len(scenes)} scenes.")
+    logging.info(f"Extracted {saved_count} frames across {len(scenes)} scenes.")
     
     # Save metadata
     with open(scenes_file, "w") as f:
@@ -116,7 +122,7 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
         
     return scenes, fps
 
-def get_photos_from_directory(input_dir: str):
+def get_photos_from_directory(input_dir: str) -> Tuple[List[Scene], float]:
     """
     Retrieve a list of image paths from a directory.
     Treats all photos as a single scene for simplicity, or one scene per photo.
@@ -129,9 +135,9 @@ def get_photos_from_directory(input_dir: str):
         photos.extend(glob.glob(os.path.join(input_dir, ext.upper())))
     
     photos.sort()
-    print(f"Found {len(photos)} photos in {input_dir}.")
+    logging.info(f"Found {len(photos)} photos in {input_dir}.")
     
-    scenes = []
+    scenes: List[Scene] = []
     for i, p in enumerate(photos):
         scenes.append({
             "scene_index": i,
