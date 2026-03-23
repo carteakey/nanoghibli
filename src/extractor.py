@@ -99,13 +99,6 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
         current_scene: Scene = {
             "scene_index": i,
             "start_frame": start_f,
-            "end_frame": end_frame, # Wait, end_frame was end_f in the loop, let's fix
-            "frames": []
-        }
-        # Fixed the end_f name in the dict below
-        current_scene = {
-            "scene_index": i,
-            "start_frame": start_f,
             "end_frame": end_f,
             "frames": []
         }
