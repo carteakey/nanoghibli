@@ -6,6 +6,8 @@ import subprocess
 import json
 import logging
 import yaml
+import re
+import shutil
 from google import genai
 from dotenv import load_dotenv
 
@@ -15,6 +17,11 @@ from animator import create_video_from_frames
 from veo_animator import generate_scene_video
 from director import get_video_script
 from models import UsageMetrics
+
+def get_slug(path: str) -> str:
+    """Creates a URL-friendly slug from a filename."""
+    name = os.path.basename(path).split('.')[0]
+    return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
 
 def setup_logging(verbose: bool):
     level = logging.DEBUG if verbose else logging.INFO
@@ -84,9 +91,16 @@ def main():
 
     client = genai.Client()
     metrics = UsageMetrics()
+    
+    cache_base = "data/cache"
+    stylized_cache = os.path.join(cache_base, "stylized")
+    segments_cache = os.path.join(cache_base, "segments")
+    os.makedirs(stylized_cache, exist_ok=True)
+    os.makedirs(segments_cache, exist_ok=True)
 
     for input_path in args.input:
-        session_id = args.session_id if args.session_id else f"{uuid.uuid4().hex[:8]}_{os.path.basename(input_path).split('.')[0]}"
+        input_slug = get_slug(input_path)
+        session_id = args.session_id if args.session_id else f"{uuid.uuid4().hex[:8]}_{input_slug}"
         logging.info(f"=== Processing: {input_path} (Session ID: {session_id}) ===")
 
         # Create directories for this session
@@ -175,6 +189,7 @@ def main():
                     new_stylized = stylize_frames(
                         scene_frames_needed, 
                         stylized_dir, 
+                        cache_dir=stylized_cache,
                         max_workers=max_workers, 
                         temperature=temp, 
                         top_p=top_p, 
@@ -241,6 +256,20 @@ def main():
                     orig_end = scene.get("end_frame", 0) / video_fps
                     orig_duration = orig_end - orig_start
                     
+                    # SEMANTIC NAMING: slug_start_end.mp4
+                    seg_id = f"{input_slug}_{int(orig_start*1000):06d}_{int(orig_end*1000):06d}"
+                    seg_path = os.path.join(veo_dir, f"{seg_id}.mp4")
+                    sync_seg_path = os.path.join(veo_dir, f"{seg_id}_sync.mp4")
+                    global_sync_path = os.path.join(segments_cache, f"{seg_id}_sync.mp4")
+                    
+                    # Check Global Cache First
+                    if os.path.exists(global_sync_path):
+                        logging.info(f"Reusing synced segment from library: {seg_id}")
+                        if not os.path.exists(sync_seg_path):
+                            shutil.copy(global_sync_path, sync_seg_path)
+                        sync_segments.append(sync_seg_path)
+                        continue
+
                     # Determine Veo request duration
                     if orig_duration <= 4.0:
                         dur_str = "4"
@@ -249,10 +278,6 @@ def main():
                     else:
                         dur_str = "8"
                         
-                    seg_name = f"veo_scene_{idx:04d}.mp4"
-                    seg_path = os.path.join(base_dir, "veo_segments", seg_name)
-                    sync_seg_path = os.path.join(base_dir, "veo_segments", f"sync_{idx:04d}.mp4")
-                    
                     # Generate Veo if not exists
                     if not os.path.exists(seg_path):
                         logging.info(f"Generating Scene {idx}: original {orig_duration:.2f}s -> requesting {dur_str}s Veo")
@@ -278,6 +303,10 @@ def main():
                                 "-c:v", "libx264", "-c:a", "aac", "-shortest",
                                 sync_seg_path
                             ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            
+                            # Save to global cache
+                            shutil.copy(sync_seg_path, global_sync_path)
+                            
                         except Exception as e:
                             logging.error(f"Failed to sync scene {idx}: {e}")
                             if os.path.exists(seg_path):
@@ -288,7 +317,7 @@ def main():
                 
                 # 3. Final Concat
                 if sync_segments:
-                    concat_list_path = os.path.join(base_dir, "veo_segments", "concat_list.txt")
+                    concat_list_path = os.path.join(veo_dir, "concat_list.txt")
                     with open(concat_list_path, "w") as f:
                         for seg in sync_segments:
                             f.write(f"file '{os.path.abspath(seg)}'\n")

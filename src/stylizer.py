@@ -1,6 +1,7 @@
 import os
 import time
 import logging
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
 from google.genai import types
@@ -19,6 +20,14 @@ GHIBLI_PROMPT = (
     "This is strictly an homage to visualize how things would look in that style. "
     "CRITICAL: You must follow the source image exactly. Do not hallucinate, invent, or add any new elements, objects, text, or details that are not explicitly present in the original image. Do not fill in any blanks."
 )
+
+def get_file_hash(file_path: str) -> str:
+    """Returns MD5 hash of a file."""
+    hasher = hashlib.md5()
+    with open(file_path, 'rb') as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
 
 def get_scene_description(client: genai.Client, frame_path: str, metrics: UsageMetrics = None) -> str:
     """
@@ -41,12 +50,26 @@ def get_scene_description(client: genai.Client, frame_path: str, metrics: UsageM
         logging.warning(f"Failed to generate scene description: {e}")
         return ""
 
-def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir: str, max_retries: int = 5, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> Optional[FrameInfo]:
+def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir: str, cache_dir: str = "data/cache/stylized", max_retries: int = 5, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> Optional[FrameInfo]:
     input_path = frame_info["path"]
     orig_index = frame_info.get("original_frame_index", 0)
+    
+    # 1. Check Global Cache
+    frame_hash = get_file_hash(input_path)
+    cache_path = os.path.join(cache_dir, f"{frame_hash}.png")
     out_name = f"stylized_{orig_index:06d}.png"
     out_path = os.path.join(output_dir, out_name)
     
+    if os.path.exists(cache_path):
+        # Already stylized in a previous run!
+        import shutil
+        if not os.path.exists(out_path):
+            shutil.copy(cache_path, out_path)
+        return {
+            "path": out_path,
+            "original_frame_index": orig_index
+        }
+        
     if os.path.exists(out_path):
         return {
             "path": out_path,
@@ -80,6 +103,11 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
                 if part.inline_data is not None:
                     out_img = part.as_image()
                     out_img.save(out_path)
+                    # Save to cache for future runs
+                    if not os.path.exists(cache_dir):
+                        os.makedirs(cache_dir)
+                    out_img.save(cache_path)
+                    
                     return {
                         "path": out_path,
                         "original_frame_index": orig_index
@@ -98,14 +126,15 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
     logging.error(f"Failed to stylize {input_path} after {max_retries} attempts.")
     return None
 
-def stylize_frames(frames: List[FrameInfo], output_dir: str, max_workers: int = 4, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> List[FrameInfo]:
+def stylize_frames(frames: List[FrameInfo], output_dir: str, cache_dir: str = "data/cache/stylized", max_workers: int = 4, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> List[FrameInfo]:
     """
     Takes a list of frame dicts and stylizes each concurrently using the Gemini API.
-    Saves outputs in output_dir.
-    Returns a list of stylized frame dicts.
+    Uses scene_description to maintain consistency.
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
 
     client = genai.Client()
     stylized_frames: List[FrameInfo] = []
@@ -113,7 +142,7 @@ def stylize_frames(frames: List[FrameInfo], output_dir: str, max_workers: int = 
     logging.info(f"Stylizing {len(frames)} frames with description: '{scene_description}'")
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_single_frame, client, f, output_dir, 5, temperature, top_p, top_k, scene_description, metrics): f for f in frames}
+        futures = {executor.submit(process_single_frame, client, f, output_dir, cache_dir, 5, temperature, top_p, top_k, scene_description, metrics): f for f in frames}
         for future in tqdm(as_completed(futures), total=len(frames)):
             result = future.result()
             if result:
