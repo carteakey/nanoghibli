@@ -6,7 +6,7 @@ from google.genai import types
 from google.api_core import exceptions
 from typing import List, Optional
 
-from models import FrameInfo, UsageMetrics
+from models import FrameInfo, UsageMetrics, QuotaExceededError
 
 GHIBLI_VIDEO_PROMPT = (
     "A cinematic, haunting video in a Studio Ghibli homage style. "
@@ -69,8 +69,13 @@ def generate_scene_video(stylized_frames: List[FrameInfo], output_path: str, dur
                 metrics.videos_generated += 1
             break
         except exceptions.ResourceExhausted as e:
-            wait_time = 30 * (2 ** attempt)
-            logging.warning(f"Veo rate limit hit. Waiting {wait_time}s... Error: {e}")
+            error_msg = str(e).lower()
+            if "quota" in error_msg or "per day" in error_msg:
+                logging.error(f"Daily quota hit for Veo: {e}. Exiting so you can resume later.")
+                raise QuotaExceededError("Veo daily quota exceeded.")
+            
+            wait_time = 60
+            logging.warning(f"Veo rate limit hit (RPM). Waiting {wait_time}s... Error: {e}")
             time.sleep(wait_time)
         except Exception as e:
             logging.warning(f"Veo generation error on attempt {attempt+1}: {e}")

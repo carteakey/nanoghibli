@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-03-23
+### Added
+- **Content-Addressable Library:** Implemented MD5-based global frame caching in `data/cache/stylized/`. Stylizing the same frame twice now costs $0 across all sessions.
+- **Semantic Segment Naming:** Synced video segments are now named by video slug and timestamps (`dune_005000_010000_sync.mp4`), enabling cross-run asset sharing and effortless merging.
+- **Pre-Production Mode:** Added `--skip_video` flag to allow users to finish all stylization and caching before committing to expensive video generation runs.
+- **Maximum Context VEO:** Updated VEO prompts to reference the entire sequence of stylized frames, improving narrative flow in generated scenes.
+- **Cost Reporting:** Real-time session cost estimation printed at the end of every run.
+
+## [2.1.0] - 2026-03-23
+### Added
+- **Perfect Audio Sync:** Moved from global muxing to per-scene atomic audio slicing. Audio is now perfectly aligned with dialogue timestamps.
+- **Temporal Conforming:** Implemented FFmpeg `setpts` filtering to conform Veo generated videos (4s/8s) exactly to the original scene duration from the script.
+
 ## [2.0.0] - 2026-03-23
 ### Added
 - **Multimodal Director Phase:** Added a pre-scan phase where Gemini 3.1 Flash "watches" the video to create an intelligent Edit Script.

@@ -1,95 +1,70 @@
-# NanoGhibli
+# NanoGhibli v2.2
 
-NanoGhibli is a Python-based pipeline that automatically converts videos or folders of photos into beautifully stylized, Studio Ghibli-inspired trailers. 
+NanoGhibli is an intelligent, multimodal AI pipeline that transforms raw video footage into Studio Ghibli-inspired trailers. By combining high-level cinematic analysis with artistic style transfer and generative animation, it creates cohesive, narrative-driven trailers that feel like hand-drawn masterpieces.
 
-It accomplishes this by using computer vision to detect scenes and keyframes, prompting the **Nano Banana 2 (Gemini 2.5 Flash Image)** model for artistic stylization, and utilizing the **Veo 3.1 Fast** model for cinematic scene interpolation. It even multiplexes the original audio track back onto the final generation.
+## The v2.2 "Director" Pipeline
 
-## Features
+NanoGhibli v2.2 moves beyond simple computer vision to a **"Director-First"** architecture:
 
-- **Scene Detection:** Uses histogram correlation and motion thresholds via OpenCV to accurately split input videos into distinct scenes.
-- **Seek for Light:** Intelligently scans the start of each scene to skip black frames and transitions, ensuring a clear starting image for every generation.
-- **Smart Prompting (The Director Agent):** Automatically generates a concise description for each scene using Gemini 2.0 Flash to maintain character and environment consistency across frames.
-- **Stylization:** Converts extracted frames into vibrant watercolor Ghibli-style art using the Nano Banana 2 API, powered by scene-specific context.
-- **Cinematic Animation:** Generates fluid transitions for each scene using the Veo 3.1 Fast preview model.
-- **Resumable Pipeline:** Saves progress locally to a unique `session_id`. If you hit an API limit, simply re-run the command to pick up exactly where you left off without wasting quota.
-- **Audio Syncing:** Automatically extracts the original audio and overlays it onto the synthesized video.
-- **Batch Processing:** Support for multiple video or photo directory inputs in a single run.
-- **GIF Output Support:** High-quality GIF generation for easier social sharing.
+1.  **Phase 0: The Director Phase (`--use_director`)**: Gemini 3.1 Flash "watches" a low-res proxy of your video. It generates a structured **JSON Edit Script** that identifies dialogue, action, and landscapes, assigning importance scores and visual descriptions to each scene.
+2.  **Phase 1: Adaptive Extraction**: Instead of fixed frame rates, the pipeline adjusts its sampling density based on the Director's script (e.g., 1.0 FPS for intense dialogue, 0.25 FPS for vast landscapes). This ensures crucial details are captured while minimizing API costs.
+3.  **Phase 2: Global Cached Stylization**: Frames are stylized using **Gemini 3.1 Flash Image**. Every frame is MD5-hashed and stored in a global cache (`data/cache/stylized/`). If a frame has been stylized in any previous session, it is reused instantly.
+4.  **Phase 3: Perfect Sync Animation**: Stylized frames are bridge-animated using **Veo 3.1 Fast**. The resulting clips are conformed via FFmpeg `setpts` to match the original movie's timing exactly, ensuring dialogue and audio remain perfectly synced.
+5.  **Phase 4: Atomic Assembly**: Synced segments are concatenated and merged with the original audio track to produce the final trailer.
+
+## Key Features
+
+- **Multimodal Understanding**: Uses Gemini 3.1's massive context window to "understand" the narrative flow before processing.
+- **Content-Addressable Library**: Semantic naming and hashing mean you never pay for the same stylization twice.
+- **Perfect Audio Sync**: Per-scene atomic muxing and temporal conforming keep the soundtrack locked to the visuals.
+- **Pre-Production Mode (`--skip_video`)**: Finish all expensive vision work and descriptions before committing to the 4-video-per-day Veo limit.
+- **Cost Transparency**: Detailed session cost estimation provided at the end of every run.
 
 ## Setup
 
 1. **Install Dependencies:**
-   Ensure you have Python 3 and `ffmpeg` installed on your system. 
-   Then, install the Python requirements:
-
+   Ensure you have Python 3 and `ffmpeg` installed. 
    ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install opencv-python google-genai pillow python-dotenv tqdm
+   pip install -r requirements.txt
    ```
 
 2. **API Keys:**
-   Create a `.env` file in the root directory and add your Gemini API Key:
+   Add your key to a `.env` file:
    ```bash
-   GEMINI_API_KEY=your_api_key_here
+   GEMINI_API_KEY=your_key
    ```
 
-## Usage Examples
+## Usage
 
-Run the scripts from the root directory within your activated virtual environment.
-
-### 1. Process a full video with Veo Interpolation
-Detects scenes, stylizes frames, animates the scenes with Veo, and outputs the final video with original audio synced.
-
+### The "Director" Production Run
+This is the recommended way to run the pipeline for maximum quality and consistency.
 ```bash
 python src/main.py \
   --mode video \
-  --input path/to/your_video.mp4 \
+  --input my_movie.mp4 \
+  --use_director \
   --use_veo \
-  --session_id my_awesome_video
+  --session_id final_trailer
 ```
 
-### 2. Process just a 30-second snippet
-Perfect for testing out prompts or saving API costs before running an entire movie.
-
+### Pre-Production (Caching Only)
+Use this to prepare all stylized frames when you are out of Veo video generation quota.
 ```bash
 python src/main.py \
   --mode video \
-  --input path/to/your_video.mp4 \
-  --max_duration 30 \
-  --use_veo \
-  --session_id short_test
+  --input my_movie.mp4 \
+  --use_director \
+  --skip_video \
+  --session_id preprod_run
 ```
 
-### 3. Resume an interrupted session
-If your script fails (e.g., due to a `429 RESOURCE_EXHAUSTED` rate limit error from the Veo API), simply run the exact same command. The script will detect the existing `session_id`, skip the expensive extraction and stylization steps, and resume generating the remaining Veo scenes!
+## Architectural Decision: Global vs. Chunked Director
 
-```bash
-python src/main.py \
-  --mode video \
-  --input path/to/your_video.mp4 \
-  --max_duration 30 \
-  --use_veo \
-  --session_id short_test
-```
+**Decision:** The Director Phase utilizes a single, global video analysis rather than chunking the video into smaller segments.
 
-### 4. Simple Assembly (No Veo)
-If you don't want to use the heavy Veo 3.1 video generation model, you can run the pipeline without the `--use_veo` flag. This will simply stitch the stylized keyframes together like a traditional flipbook animation.
+**Rationale:**
+- **Narrative Context:** Gemini 3.1's 1M token context window allows it to analyze up to 15-20 minutes of footage in a single pass. This provides "Editor's Intuition," allowing the model to understand the relationship between early setups and late payoffs in a trailer.
+- **Simplicity:** A single global script avoids the complexity of merging overlapping timestamps and deduplicating scenes at chunk boundaries.
+- **Cohesion:** Visual anchors generated globally remain more consistent than those generated in isolated 10-second chunks.
 
-```bash
-python src/main.py \
-  --mode video \
-  --input path/to/your_video.mp4 \
-  --session_id flipbook_test
-```
-
-### 5. Stylize a folder of Photos
-You can also run NanoGhibli on a folder of static images to batch stylize them!
-
-```bash
-python src/main.py \
-  --mode photo \
-  --input data/input/photos_folder/
-```
-
-Outputs will be saved in `data/output/<session_id>/`.
+*Note: For processing full-length feature films (90+ minutes), a sliding-window chunking strategy is planned for v3.0.*
