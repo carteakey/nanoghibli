@@ -1,0 +1,20 @@
+models:
+  stylizer:
+    name: "gemini-3.1-flash-image-preview"
+    temperature: 0.7
+    top_p: 0.95
+    top_k: 40
+  animator:
+    name: "veo-3.1-fast-generate-preview"
+    duration_seconds: "4"
+    person_generation: "allow_adult"
+
+processing:
+  fps: 12.0
+  motion_threshold: 20.0
+  scene_threshold: 35.0
+  max_duration: null
+  max_workers: 4
+  output_format: "mp4"
+  skip_black_frames: false
+  use_veo: false

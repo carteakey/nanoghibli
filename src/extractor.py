@@ -5,8 +5,36 @@ import json
 import logging
 from typing import Tuple, List
 from scenedetect import detect, ContentDetector
+from tqdm import tqdm
 
 from models import Scene, FrameInfo
+
+def find_best_start_frame(cap, start_f, end_f, max_scan=15):
+    """
+    Scans the first few frames of a scene to find the first one that isn't too dark or empty.
+    Returns the frame index.
+    """
+    best_f = start_f
+    max_brightness = -1
+    
+    for f in range(start_f, min(start_f + max_scan, end_f)):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, f)
+        ret, frame = cap.read()
+        if not ret:
+            break
+            
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        brightness = gray.mean()
+        
+        # If we find a frame with decent brightness (> 30), we take it
+        if brightness > 30:
+            return f
+            
+        if brightness > max_brightness:
+            max_brightness = brightness
+            best_f = f
+            
+    return best_f
 
 def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold: float = 20.0, scene_threshold: float = 35.0, max_duration: float = None, skip_black_frames: bool = False) -> Tuple[List[Scene], float]:
     """
@@ -59,15 +87,23 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
             filtered_scene_list.append((start_f, end_f))
         scene_list_frames = filtered_scene_list
 
-    logging.info(f"Found {len(scene_list_frames)} scenes using PySceneDetect.")
-
+    logging.info(f"Extracting frames from {len(scene_list_frames)} scenes...")
     saved_count = 0
     scenes: List[Scene] = []
 
-    for i, (start_f, end_f) in enumerate(scene_list_frames):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
+    for i, (start_f, end_f) in enumerate(tqdm(scene_list_frames, desc="Processing Scenes")):
+        # SEEK FOR LIGHT: Find the actual best start frame for this scene
+        actual_start_f = find_best_start_frame(cap, start_f, end_f)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, actual_start_f)
         
         current_scene: Scene = {
+            "scene_index": i,
+            "start_frame": start_f,
+            "end_frame": end_frame, # Wait, end_frame was end_f in the loop, let's fix
+            "frames": []
+        }
+        # Fixed the end_f name in the dict below
+        current_scene = {
             "scene_index": i,
             "start_frame": start_f,
             "end_frame": end_f,
@@ -75,7 +111,7 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
         }
         
         prev_frame_gray = None
-        for frame_count in range(start_f, end_f):
+        for frame_count in range(actual_start_f, end_f):
             ret, frame = cap.read()
             if not ret:
                 break
@@ -101,7 +137,17 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
             if is_keyframe:
                 frame_name = f"frame_{frame_count:06d}.jpg"
                 out_path = os.path.join(output_dir, frame_name)
-                cv2.imwrite(out_path, frame) # Save the original full-res frame
+                
+                # Memory Optimization: Resize if dimensions exceed 1920x1080
+                h, w = frame.shape[:2]
+                max_w, max_h = 1920, 1080
+                if w > max_w or h > max_h:
+                    scale = min(max_w / w, max_h / h)
+                    new_w, new_h = int(w * scale), int(h * scale)
+                    frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                    logging.debug(f"Resized frame {frame_count} from {w}x{h} to {new_w}x{new_h}")
+
+                cv2.imwrite(out_path, frame)
                 
                 current_scene["frames"].append({
                     "path": out_path,

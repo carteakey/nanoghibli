@@ -1,0 +1,10 @@
+python-dotenv
+scenedetect
+opencv-python
+google-genai
+google-api-core
+Pillow
+tqdm
+PyYAML
+pytest
+imageio

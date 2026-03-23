@@ -7,10 +7,14 @@ It accomplishes this by using computer vision to detect scenes and keyframes, pr
 ## Features
 
 - **Scene Detection:** Uses histogram correlation and motion thresholds via OpenCV to accurately split input videos into distinct scenes.
-- **Stylization:** Converts extracted frames into vibrant watercolor Ghibli-style art using the Nano Banana 2 API.
+- **Seek for Light:** Intelligently scans the start of each scene to skip black frames and transitions, ensuring a clear starting image for every generation.
+- **Smart Prompting (The Director Agent):** Automatically generates a concise description for each scene using Gemini 2.0 Flash to maintain character and environment consistency across frames.
+- **Stylization:** Converts extracted frames into vibrant watercolor Ghibli-style art using the Nano Banana 2 API, powered by scene-specific context.
 - **Cinematic Animation:** Generates fluid transitions for each scene using the Veo 3.1 Fast preview model.
 - **Resumable Pipeline:** Saves progress locally to a unique `session_id`. If you hit an API limit, simply re-run the command to pick up exactly where you left off without wasting quota.
 - **Audio Syncing:** Automatically extracts the original audio and overlays it onto the synthesized video.
+- **Batch Processing:** Support for multiple video or photo directory inputs in a single run.
+- **GIF Output Support:** High-quality GIF generation for easier social sharing.
 
 ## Setup
 

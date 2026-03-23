@@ -10,3 +10,4 @@ class Scene(TypedDict, total=False):
     end_frame: int
     frames: List[FrameInfo]
     stylized_frames: List[FrameInfo]
+    description: str

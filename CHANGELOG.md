@@ -5,9 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] - 2026-03-23
 ### Added
-- Initial VEO model implementation stub (`src/veo_animator.py`).
+- **Smart Prompting:** Added a "Director" phase that uses Gemini 2.0 Flash to generate a 15-word description of each scene before stylization.
+- **Scene Consistency:** The generated scene description is now injected into the Ghibli prompt for every frame in that scene, significantly improving character and environmental detail consistency.
+- **Seek for Light:** Implemented intelligent start-frame detection that scans the beginning of each scene to skip black or empty frames, ensuring Veo starts with high-quality visual context.
+- **Metadata Persistence:** Scene descriptions are now saved to `scenes.json` to support session resumes.
+- **Enhanced VEO Context:** The VEO animator now incorporates the scene description into its cinematic generation prompt.
+
+## [1.0.0] - 2026-03-23
+### Added
+- **Batch Processing:** Support for multiple video or photo directory inputs in a single run via CLI.
+- **Comprehensive Error Handling:** Robust handling for API rate limits (`429 RESOURCE_EXHAUSTED`) with exponential backoff and network timeouts.
+- **Memory Optimization:** Automatic frame resizing for high-resolution (4K/1080p) videos to reduce memory footprint.
+- **Configuration System:** Introduced `config.yaml` for central management of model parameters (temperature, top_p, etc.) and processing defaults.
+- **Progress Tracking:** Integrated `tqdm` progress bars across extraction, stylization, and VEO generation phases.
+- **GIF Output Support:** Added high-quality GIF generation with adaptive palette support via the `--output_format` flag.
+- **Unit Testing Suite:** Added comprehensive tests for `extractor.py` and `animator.py` in the `tests/` directory.
 
 ## [0.1.0] - 2026-03-17
 ### Added
