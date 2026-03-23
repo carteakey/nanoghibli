@@ -161,6 +161,91 @@ def extract_scenes_from_video(video_path: str, output_dir: str, motion_threshold
         
     return scenes, fps
 
+def extract_frames_from_script(video_path: str, output_dir: str, script: list) -> Tuple[List[Scene], float]:
+    """
+    Extracts frames based on a Director's Script.
+    Sampling density scales with 'importance' and 'type'.
+    """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps == 0: fps = 24.0
+
+    scenes: List[Scene] = []
+    saved_count = 0
+
+    logging.info(f"Director-Led Extraction: Processing {len(script)} segments...")
+
+    for i, segment in enumerate(tqdm(script, desc="Extracting Director Scenes")):
+        start_time = segment.get("start_time", 0.0)
+        end_time = segment.get("end_time", start_time + 2.0)
+        importance = segment.get("importance", 5)
+        seg_type = segment.get("type", "action")
+        description = segment.get("description", "")
+
+        # Adaptive sampling: 
+        # Dialogue/Importance 10 -> high density (up to 2 FPS)
+        # Landscape/Importance 1 -> low density (0.5 FPS)
+        if seg_type == "dialogue" or importance >= 8:
+            sampling_rate = 1.0 # 1 frame per second
+        elif seg_type == "landscape" or importance <= 3:
+            sampling_rate = 0.25 # 1 frame per 4 seconds
+        else:
+            sampling_rate = 0.5 # 1 frame per 2 seconds
+
+        duration = end_time - start_time
+        num_frames_to_extract = max(1, int(duration * sampling_rate))
+        
+        # Fixed interval extraction within segment
+        interval = (end_time - start_time) / num_frames_to_extract if num_frames_to_extract > 1 else 0
+        
+        current_scene: Scene = {
+            "scene_index": i,
+            "start_frame": int(start_time * fps),
+            "end_frame": int(end_time * fps),
+            "description": description,
+            "frames": []
+        }
+
+        for j in range(num_frames_to_extract):
+            target_time = start_time + (j * interval)
+            frame_idx = int(target_time * fps)
+            
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+            ret, frame = cap.read()
+            if not ret: break
+
+            # Memory optimization
+            h, w = frame.shape[:2]
+            if w > 1920 or h > 1080:
+                scale = min(1920/w, 1080/h)
+                frame = cv2.resize(frame, (int(w*scale), int(h*scale)))
+
+            frame_name = f"dir_scene_{i:03d}_frame_{j:02d}.jpg"
+            out_path = os.path.join(output_dir, frame_name)
+            cv2.imwrite(out_path, frame)
+
+            current_scene["frames"].append({
+                "path": out_path,
+                "original_frame_index": frame_idx
+            })
+            saved_count += 1
+
+        if current_scene["frames"]:
+            scenes.append(current_scene)
+
+    cap.release()
+    logging.info(f"Director extracted {saved_count} frames across {len(scenes)} segments.")
+    
+    # Save metadata
+    scenes_file = os.path.join(output_dir, "scenes.json")
+    with open(scenes_file, "w") as f:
+        json.dump({"fps": fps, "scenes": scenes}, f, indent=2)
+
+    return scenes, fps
+
 def get_photos_from_directory(input_dir: str) -> Tuple[List[Scene], float]:
     """
     Retrieve a list of image paths from a directory.

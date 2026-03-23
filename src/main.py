@@ -9,10 +9,11 @@ import yaml
 from google import genai
 from dotenv import load_dotenv
 
-from extractor import extract_scenes_from_video, get_photos_from_directory
+from extractor import extract_scenes_from_video, get_photos_from_directory, extract_frames_from_script
 from stylizer import stylize_frames, get_scene_description
 from animator import create_video_from_frames
 from veo_animator import generate_scene_video
+from director import get_video_script
 from models import UsageMetrics
 
 def setup_logging(verbose: bool):
@@ -41,6 +42,7 @@ def main():
     parser.add_argument("--scene_threshold", type=float, help="Scene change threshold.")
     parser.add_argument("--max_duration", type=float, help="Maximum duration (in seconds) to process from the video.")
     parser.add_argument("--use_veo", action="store_true", help="Use Veo 3.1 to generate a fluid video for each scene.")
+    parser.add_argument("--use_director", action="store_true", help="Use Gemini to first analyze the video and create an intelligent edit script.")
     parser.add_argument("--output_format", choices=["mp4", "gif"], help="Output format for the final video.")
     parser.add_argument("--skip_stylize", action="store_true", help="Skip extraction and stylization and proceed directly to assembly.")
     parser.add_argument("--skip_black_frames", action="store_true", help="Skip black frames during extraction.")
@@ -65,6 +67,7 @@ def main():
     max_duration = args.max_duration or config.get("processing", {}).get("max_duration")
     output_format = args.output_format or config.get("processing", {}).get("output_format", "mp4")
     use_veo = args.use_veo or config.get("processing", {}).get("use_veo", False)
+    use_director = args.use_director or config.get("processing", {}).get("use_director", False)
     skip_black_frames = args.skip_black_frames or config.get("processing", {}).get("skip_black_frames", False)
     max_workers = config.get("processing", {}).get("max_workers", 4)
     
@@ -105,12 +108,32 @@ def main():
         video_fps = 30.0
 
         if not args.skip_stylize:
+            # === Phase 0: The Director (Optional) ===
+            script = None
+            if args.mode == "video" and use_director:
+                script_file = os.path.join(base_dir, "director_script.json")
+                if os.path.exists(script_file):
+                    logging.info(f"Loading existing Director Script from {script_file}...")
+                    with open(script_file, "r") as f:
+                        script = json.load(f)
+                else:
+                    logging.info("=== Phase 0: The Director Phase ===")
+                    script = get_video_script(client, input_path, base_dir, metrics=metrics)
+                    if script:
+                        with open(script_file, "w") as f:
+                            json.dump(script, f, indent=2)
+
             logging.info("=== Phase 1: Frame Extraction ===")
             if args.mode == "video":
                 if not os.path.isfile(input_path):
                     logging.error(f"Input video file not found: {input_path}")
                     continue
-                scenes, video_fps = extract_scenes_from_video(input_path, frames_dir, threshold, scene_threshold, max_duration, skip_black_frames)
+                
+                if script:
+                    scenes, video_fps = extract_frames_from_script(input_path, frames_dir, script)
+                else:
+                    scenes, video_fps = extract_scenes_from_video(input_path, frames_dir, threshold, scene_threshold, max_duration, skip_black_frames)
+                
                 logging.info(f"Original video FPS was: {video_fps}. Target FPS is {fps}.")
             elif args.mode == "photo":
                 if not os.path.isdir(input_path):
