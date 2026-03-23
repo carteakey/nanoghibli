@@ -58,6 +58,18 @@ python src/main.py \
   --session_id preprod_run
 ```
 
+### Batch Ghiblifying Photos
+Transform a folder of static images into Studio Ghibli-style art.
+```bash
+python src/main.py \
+  --mode photo \
+  --input data/input/my_photos/ \
+  --session_id ghibli_collection
+```
+- **Smart Anchoring**: Each image is analyzed by Gemini 3.1 Flash Lite to generate a unique visual description before stylization, ensuring lighting and subjects are respected.
+- **Global Cache**: Images already stylized in any previous video or photo run will be instantly pulled from `data/cache/stylized/` at $0 cost.
+- **Output**: Results are saved in `data/output/<session_id>/stylized_frames/`.
+
 ## Architectural Decision: Global vs. Chunked Director
 
 **Decision:** The Director Phase utilizes a single, global video analysis rather than chunking the video into smaller segments.
