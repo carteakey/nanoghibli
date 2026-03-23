@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-03-23
+### Added
+- **Multimodal Director Phase:** Added a pre-scan phase where Gemini 3.1 Flash "watches" the video to create an intelligent Edit Script.
+- **Content-Aware Extraction:** Replaced blind motion detection with adaptive sampling based on scene type (e.g., higher FPS for dialogue, lower for landscapes).
+- **Intelligent Anchoring:** Director-generated descriptions are now used as the primary visual anchors for the entire pipeline, ensuring narrative and visual continuity.
+- **Model Upgrade:** Fully migrated all vision and analysis tasks to Gemini 3.1 (Flash Lite and Flash Image Preview).
+- **Video Proxies:** Implemented high-speed FFmpeg proxy creation to minimize upload times and token costs for long video analysis.
+
 ## [1.1.0] - 2026-03-23
 ### Added
 - **Smart Prompting:** Added a "Director" phase that uses Gemini 2.0 Flash to generate a 15-word description of each scene before stylization.

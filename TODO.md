@@ -4,11 +4,13 @@
 - [x] Implement VEO model integration for smoother animation transitions between stylized frames.
 - [x] Add comprehensive error handling for API rate limits and network timeouts.
 - [x] Allow batch processing of multiple videos or photo directories in one run.
+- [x] Implement Dynamic Scene Selection (The Director Phase) via Multimodal Analysis.
 
 ## Medium Priority
 - [x] Add a progress bar to the frame extraction phase for large videos.
 - [x] Expose Gemini model parameters (like temperature) via CLI arguments for advanced tweaking.
 - [x] Optimize memory usage when processing high-resolution input files.
+- [x] Add session cost tracking and usage metrics reporting.
 
 ## Low Priority / Polish
 - [x] Add unit tests for `extractor.py` and `animator.py`.
