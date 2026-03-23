@@ -9,7 +9,7 @@ from PIL import Image
 from tqdm import tqdm
 from typing import List, Optional
 
-from models import FrameInfo, UsageMetrics
+from models import FrameInfo, UsageMetrics, QuotaExceededError
 
 GHIBLI_PROMPT = (
     "Modify this image into a Studio Ghibli homage. "
@@ -87,8 +87,13 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
                     
             logging.warning(f"No image returned for {input_path} on attempt {attempt+1}")
         except exceptions.ResourceExhausted as e:
-            wait_time = 30 * (2 ** attempt) # Initial 30s backoff for rate limits
-            logging.warning(f"Rate limit hit for {input_path}. Waiting {wait_time}s... Error: {e}")
+            error_msg = str(e).lower()
+            if "quota" in error_msg or "per day" in error_msg:
+                logging.error(f"Daily quota hit for Stylizer: {e}. Exiting so you can resume later.")
+                raise QuotaExceededError("Stylizer daily quota exceeded.")
+            
+            wait_time = 60 # Handle RPM limits
+            logging.warning(f"Rate limit hit for {input_path} (RPM). Waiting {wait_time}s... Error: {e}")
             time.sleep(wait_time)
         except Exception as e:
             logging.warning(f"Error stylizing {input_path} on attempt {attempt+1}: {e}")

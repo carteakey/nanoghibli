@@ -14,7 +14,7 @@ from stylizer import stylize_frames, get_scene_description
 from animator import create_video_from_frames
 from veo_animator import generate_scene_video
 from director import get_video_script
-from models import UsageMetrics
+from models import UsageMetrics, QuotaExceededError
 
 def setup_logging(verbose: bool):
     level = logging.DEBUG if verbose else logging.INFO
@@ -149,49 +149,62 @@ def main():
             
             # Stylize scene by scene to maintain consistency and generate descriptions
             all_stylized_frames = []
-            for scene in scenes:
-                # 1. SMART PROMPT: Generate scene description if not exists
-                if not scene.get("description"):
-                    # Use the first frame of the scene as a representative for description
-                    rep_frame = scene["frames"][0]["path"]
-                    scene["description"] = get_scene_description(client, rep_frame, metrics=metrics)
+            try:
+                for scene in scenes:
+                    # 1. SMART PROMPT: Generate scene description if not exists
+                    if not scene.get("description"):
+                        # Use the first frame of the scene as a representative for description
+                        rep_frame = scene["frames"][0]["path"]
+                        scene["description"] = get_scene_description(client, rep_frame, metrics=metrics)
+                    
+                    # Check for existing stylized frames for this scene
+                    scene_frames_needed = []
+                    scene_stylized = []
+                    for f in scene["frames"]:
+                        expected_out_name = f"stylized_{f['original_frame_index']:06d}.png"
+                        expected_out_path = os.path.join(stylized_dir, expected_out_name)
+                        if os.path.exists(expected_out_path):
+                            scene_stylized.append({
+                                "path": expected_out_path,
+                                "original_frame_index": f['original_frame_index']
+                            })
+                        else:
+                            scene_frames_needed.append(f)
+                    
+                    if scene_frames_needed:
+                        logging.info(f"Stylizing scene {scene['scene_index']} ({len(scene_frames_needed)} frames)...")
+                        new_stylized = stylize_frames(
+                            scene_frames_needed, 
+                            stylized_dir, 
+                            max_workers=max_workers, 
+                            temperature=temp, 
+                            top_p=top_p, 
+                            top_k=top_k,
+                            scene_description=scene.get("description", ""),
+                            metrics=metrics
+                        )
+                        scene_stylized.extend(new_stylized)
+                    
+                    scene_stylized.sort(key=lambda x: x["original_frame_index"])
+                    all_stylized_frames.extend(scene_stylized)
+                    scene["stylized_frames"] = scene_stylized
                 
-                # Check for existing stylized frames for this scene
-                scene_frames_needed = []
-                scene_stylized = []
-                for f in scene["frames"]:
-                    expected_out_name = f"stylized_{f['original_frame_index']:06d}.png"
-                    expected_out_path = os.path.join(stylized_dir, expected_out_name)
-                    if os.path.exists(expected_out_path):
-                        scene_stylized.append({
-                            "path": expected_out_path,
-                            "original_frame_index": f['original_frame_index']
-                        })
-                    else:
-                        scene_frames_needed.append(f)
+                # Save updated metadata with descriptions
+                scenes_file = os.path.join(frames_dir, "scenes.json")
+                with open(scenes_file, "w") as f:
+                    json.dump({"fps": video_fps, "scenes": scenes}, f, indent=2)
+
+            except QuotaExceededError as e:
+                logging.error(f"Quota Exceeded during stylization: {e}")
+                logging.info(f"You can resume later by using: --session_id {session_id}")
                 
-                if scene_frames_needed:
-                    logging.info(f"Stylizing scene {scene['scene_index']} ({len(scene_frames_needed)} frames)...")
-                    new_stylized = stylize_frames(
-                        scene_frames_needed, 
-                        stylized_dir, 
-                        max_workers=max_workers, 
-                        temperature=temp, 
-                        top_p=top_p, 
-                        top_k=top_k,
-                        scene_description=scene.get("description", ""),
-                        metrics=metrics
-                    )
-                    scene_stylized.extend(new_stylized)
+                # Save partial metadata
+                scenes_file = os.path.join(frames_dir, "scenes.json")
+                with open(scenes_file, "w") as f:
+                    json.dump({"fps": video_fps, "scenes": scenes}, f, indent=2)
                 
-                scene_stylized.sort(key=lambda x: x["original_frame_index"])
-                all_stylized_frames.extend(scene_stylized)
-                scene["stylized_frames"] = scene_stylized
-            
-            # Save updated metadata with descriptions
-            scenes_file = os.path.join(frames_dir, "scenes.json")
-            with open(scenes_file, "w") as f:
-                json.dump({"fps": video_fps, "scenes": scenes}, f, indent=2)
+                print(metrics)
+                return
 
         else:
             # Load existing scenes
@@ -228,41 +241,47 @@ def main():
                 logging.info(f"Generating Veo segments for {len(scenes)} scenes...")
                 veo_segments = []
                 
-                for scene in scenes:
-                    idx = scene["scene_index"]
-                    scene_stylized = scene["stylized_frames"]
-                    
-                    if not scene_stylized:
-                        logging.warning(f"Skipping scene {idx}, no stylized frames.")
-                        continue
-                    
-                    # Calculate duration
-                    orig_frames = scene["end_frame"] - scene["start_frame"]
-                    orig_sec = orig_frames / video_fps if video_fps else 4.0
-                    
-                    if orig_sec <= 4.0:
-                        dur_str = "4"
-                    elif orig_sec <= 6.0:
-                        dur_str = "6"
-                    else:
-                        dur_str = "8"
+                try:
+                    for scene in scenes:
+                        idx = scene["scene_index"]
+                        scene_stylized = scene["stylized_frames"]
                         
-                    seg_name = f"veo_scene_{idx:04d}.mp4"
-                    seg_path = os.path.join(veo_dir, seg_name)
-                    veo_segments.append(seg_path)
-                    
-                    if os.path.exists(seg_path):
-                        logging.info(f"Segment {seg_name} already exists. Skipping.")
-                        continue
-                    
-                    logging.info(f"Generating Scene {idx}/{len(scenes)}: original length {orig_sec:.1f}s -> requesting {dur_str}s Veo video")
-                    generate_scene_video(
-                        scene_stylized, 
-                        seg_path, 
-                        duration_seconds=dur_str,
-                        scene_description=scene.get("description", ""),
-                        metrics=metrics
-                    )
+                        if not scene_stylized:
+                            logging.warning(f"Skipping scene {idx}, no stylized frames.")
+                            continue
+                        
+                        # Calculate duration
+                        orig_frames = scene["end_frame"] - scene["start_frame"]
+                        orig_sec = orig_frames / video_fps if video_fps else 4.0
+                        
+                        if orig_sec <= 4.0:
+                            dur_str = "4"
+                        elif orig_sec <= 6.0:
+                            dur_str = "6"
+                        else:
+                            dur_str = "8"
+                            
+                        seg_name = f"veo_scene_{idx:04d}.mp4"
+                        seg_path = os.path.join(veo_dir, seg_name)
+                        veo_segments.append(seg_path)
+                        
+                        if os.path.exists(seg_path):
+                            logging.info(f"Segment {seg_name} already exists. Skipping.")
+                            continue
+                        
+                        logging.info(f"Generating Scene {idx}/{len(scenes)}: original length {orig_sec:.1f}s -> requesting {dur_str}s Veo video")
+                        generate_scene_video(
+                            scene_stylized, 
+                            seg_path, 
+                            duration_seconds=dur_str,
+                            scene_description=scene.get("description", ""),
+                            metrics=metrics
+                        )
+                except QuotaExceededError as e:
+                    logging.error(f"Quota Exceeded during Veo generation: {e}")
+                    logging.info(f"You can resume later by using: --session_id {session_id}")
+                    print(metrics)
+                    return
                 
                 # Concat all segments using ffmpeg
                 concat_list_path = os.path.join(veo_dir, "concat_list.txt")
