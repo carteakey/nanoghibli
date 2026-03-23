@@ -9,7 +9,7 @@ from PIL import Image
 from tqdm import tqdm
 from typing import List, Optional
 
-from models import FrameInfo
+from models import FrameInfo, UsageMetrics
 
 GHIBLI_PROMPT = (
     "Modify this image into a Studio Ghibli homage. "
@@ -20,7 +20,7 @@ GHIBLI_PROMPT = (
     "CRITICAL: You must follow the source image exactly. Do not hallucinate, invent, or add any new elements, objects, text, or details that are not explicitly present in the original image. Do not fill in any blanks."
 )
 
-def get_scene_description(client: genai.Client, frame_path: str) -> str:
+def get_scene_description(client: genai.Client, frame_path: str, metrics: UsageMetrics = None) -> str:
     """
     Asks Gemini to briefly describe the scene to use as a context prompt.
     """
@@ -28,9 +28,12 @@ def get_scene_description(client: genai.Client, frame_path: str) -> str:
         image = Image.open(frame_path)
         prompt = "Describe the main subjects, setting, and lighting in this image in one short sentence (max 15 words). Focus on what is visible."
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite-preview",
             contents=[prompt, image]
         )
+        if metrics:
+            metrics.add_usage(response)
+            metrics.descriptions_generated += 1
         description = response.text.strip()
         logging.info(f"Generated scene description: {description}")
         return description
@@ -38,7 +41,7 @@ def get_scene_description(client: genai.Client, frame_path: str) -> str:
         logging.warning(f"Failed to generate scene description: {e}")
         return ""
 
-def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir: str, max_retries: int = 5, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "") -> Optional[FrameInfo]:
+def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir: str, max_retries: int = 5, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> Optional[FrameInfo]:
     input_path = frame_info["path"]
     orig_index = frame_info.get("original_frame_index", 0)
     out_name = f"stylized_{orig_index:06d}.png"
@@ -58,7 +61,7 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
         try:
             image = Image.open(input_path)
             response = client.models.generate_content(
-                model="gemini-2.5-flash-image",
+                model="gemini-3.1-flash-image-preview",
                 contents=[full_prompt, image],
                 config=types.GenerateContentConfig(
                     temperature=temperature,
@@ -67,6 +70,9 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
                     http_options={'timeout': 60000}, # 60 seconds timeout
                 )
             )
+            if metrics:
+                metrics.add_usage(response)
+                metrics.images_processed += 1
             
             for part in response.parts:
                 if getattr(part, 'thought', False):
@@ -92,7 +98,7 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
     logging.error(f"Failed to stylize {input_path} after {max_retries} attempts.")
     return None
 
-def stylize_frames(frames: List[FrameInfo], output_dir: str, max_workers: int = 4, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "") -> List[FrameInfo]:
+def stylize_frames(frames: List[FrameInfo], output_dir: str, max_workers: int = 4, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> List[FrameInfo]:
     """
     Takes a list of frame dicts and stylizes each concurrently using the Gemini API.
     Saves outputs in output_dir.
@@ -107,7 +113,7 @@ def stylize_frames(frames: List[FrameInfo], output_dir: str, max_workers: int = 
     logging.info(f"Stylizing {len(frames)} frames with description: '{scene_description}'")
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_single_frame, client, f, output_dir, 5, temperature, top_p, top_k, scene_description): f for f in frames}
+        futures = {executor.submit(process_single_frame, client, f, output_dir, 5, temperature, top_p, top_k, scene_description, metrics): f for f in frames}
         for future in tqdm(as_completed(futures), total=len(frames)):
             result = future.result()
             if result:

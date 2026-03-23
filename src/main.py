@@ -13,6 +13,7 @@ from extractor import extract_scenes_from_video, get_photos_from_directory
 from stylizer import stylize_frames, get_scene_description
 from animator import create_video_from_frames
 from veo_animator import generate_scene_video
+from models import UsageMetrics
 
 def setup_logging(verbose: bool):
     level = logging.DEBUG if verbose else logging.INFO
@@ -79,6 +80,7 @@ def main():
         return
 
     client = genai.Client()
+    metrics = UsageMetrics()
 
     for input_path in args.input:
         session_id = args.session_id if args.session_id else f"{uuid.uuid4().hex[:8]}_{os.path.basename(input_path).split('.')[0]}"
@@ -129,7 +131,7 @@ def main():
                 if not scene.get("description"):
                     # Use the first frame of the scene as a representative for description
                     rep_frame = scene["frames"][0]["path"]
-                    scene["description"] = get_scene_description(client, rep_frame)
+                    scene["description"] = get_scene_description(client, rep_frame, metrics=metrics)
                 
                 # Check for existing stylized frames for this scene
                 scene_frames_needed = []
@@ -154,7 +156,8 @@ def main():
                         temperature=temp, 
                         top_p=top_p, 
                         top_k=top_k,
-                        scene_description=scene.get("description", "")
+                        scene_description=scene.get("description", ""),
+                        metrics=metrics
                     )
                     scene_stylized.extend(new_stylized)
                 
@@ -234,16 +237,23 @@ def main():
                         scene_stylized, 
                         seg_path, 
                         duration_seconds=dur_str,
-                        scene_description=scene.get("description", "")
+                        scene_description=scene.get("description", ""),
+                        metrics=metrics
                     )
                 
                 # Concat all segments using ffmpeg
                 concat_list_path = os.path.join(veo_dir, "concat_list.txt")
+                valid_segments = [seg for seg in veo_segments if os.path.exists(seg)]
+                
+                if not valid_segments:
+                    logging.error("No Veo segments were successfully generated. Assembly failed.")
+                    continue
+
                 with open(concat_list_path, "w") as f:
-                    for seg in veo_segments:
+                    for seg in valid_segments:
                         f.write(f"file '{os.path.abspath(seg)}'\n")
                 
-                logging.info("Concatenating segments into final Veo trailer...")
+                logging.info(f"Concatenating {len(valid_segments)} valid segments into final Veo trailer...")
                 try:
                     subprocess.run(
                         ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path, "-c", "copy", veo_final_output],
@@ -309,6 +319,9 @@ def main():
 
         else:
             logging.info(f"Done! Stylized photos saved to: {stylized_dir}")
+
+    # Print final session costs
+    print(metrics)
 
 if __name__ == "__main__":
     main()

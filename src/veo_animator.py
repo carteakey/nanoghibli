@@ -6,7 +6,7 @@ from google.genai import types
 from google.api_core import exceptions
 from typing import List, Optional
 
-from models import FrameInfo
+from models import FrameInfo, UsageMetrics
 
 GHIBLI_VIDEO_PROMPT = (
     "A cinematic, haunting video in a Studio Ghibli homage style. "
@@ -15,7 +15,7 @@ GHIBLI_VIDEO_PROMPT = (
     "Gentle, ambient movement. Hand-drawn anime style reminiscent of classic 90s animation."
 )
 
-def generate_scene_video(stylized_frames: List[FrameInfo], output_path: str, duration_seconds: str = "4", scene_description: str = ""):
+def generate_scene_video(stylized_frames: List[FrameInfo], output_path: str, duration_seconds: str = "4", scene_description: str = "", metrics: UsageMetrics = None):
     """
     Uses Veo 3.1 to generate a video for a specific scene.
     Uses scene_description to guide the generation.
@@ -59,6 +59,8 @@ def generate_scene_video(stylized_frames: List[FrameInfo], output_path: str, dur
     for attempt in range(max_retries):
         try:
             operation = client.models.generate_videos(**kwargs)
+            if metrics:
+                metrics.videos_generated += 1
             break
         except exceptions.ResourceExhausted as e:
             wait_time = 30 * (2 ** attempt)
