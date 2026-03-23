@@ -226,7 +226,7 @@ def main():
         if args.mode == "video":
             if use_veo:
                 logging.info(f"Generating Veo segments for {len(scenes)} scenes...")
-                veo_segments = []
+                sync_segments = []
                 
                 for scene in scenes:
                     idx = scene["scene_index"]
@@ -236,78 +236,74 @@ def main():
                         logging.warning(f"Skipping scene {idx}, no stylized frames.")
                         continue
                     
-                    # Calculate duration
-                    orig_frames = scene["end_frame"] - scene["start_frame"]
-                    orig_sec = orig_frames / video_fps if video_fps else 4.0
+                    # 1. Calculate durations
+                    orig_start = scene.get("start_frame", 0) / video_fps
+                    orig_end = scene.get("end_frame", 0) / video_fps
+                    orig_duration = orig_end - orig_start
                     
-                    if orig_sec <= 4.0:
+                    # Determine Veo request duration
+                    if orig_duration <= 4.0:
                         dur_str = "4"
-                    elif orig_sec <= 6.0:
+                    elif orig_duration <= 6.0:
                         dur_str = "6"
                     else:
                         dur_str = "8"
                         
                     seg_name = f"veo_scene_{idx:04d}.mp4"
-                    seg_path = os.path.join(veo_dir, seg_name)
-                    veo_segments.append(seg_path)
+                    seg_path = os.path.join(base_dir, "veo_segments", seg_name)
+                    sync_seg_path = os.path.join(base_dir, "veo_segments", f"sync_{idx:04d}.mp4")
                     
-                    if os.path.exists(seg_path):
-                        logging.info(f"Segment {seg_name} already exists. Skipping.")
-                        continue
+                    # Generate Veo if not exists
+                    if not os.path.exists(seg_path):
+                        logging.info(f"Generating Scene {idx}: original {orig_duration:.2f}s -> requesting {dur_str}s Veo")
+                        generate_scene_video(
+                            scene_stylized, 
+                            seg_path, 
+                            duration_seconds=dur_str,
+                            scene_description=scene.get("description", ""),
+                            metrics=metrics
+                        )
                     
-                    logging.info(f"Generating Scene {idx}/{len(scenes)}: original length {orig_sec:.1f}s -> requesting {dur_str}s Veo video")
-                    generate_scene_video(
-                        scene_stylized, 
-                        seg_path, 
-                        duration_seconds=dur_str,
-                        scene_description=scene.get("description", ""),
-                        metrics=metrics
-                    )
-                
-                # Concat all segments using ffmpeg
-                concat_list_path = os.path.join(veo_dir, "concat_list.txt")
-                valid_segments = [seg for seg in veo_segments if os.path.exists(seg)]
-                
-                if not valid_segments:
-                    logging.error("No Veo segments were successfully generated. Assembly failed.")
-                    continue
-
-                with open(concat_list_path, "w") as f:
-                    for seg in valid_segments:
-                        f.write(f"file '{os.path.abspath(seg)}'\n")
-                
-                logging.info(f"Concatenating {len(valid_segments)} valid segments into final Veo trailer...")
-                try:
-                    subprocess.run(
-                        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path, "-c", "copy", veo_final_output],
-                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    logging.info("Initial concatenated video saved. Now adding original audio...")
-
-                    final_with_audio_path = veo_final_output.replace(f".{ext}", f"_with_audio.{ext}")
+                    # 2. SYNC LOGIC: Slice audio and conform video
+                    if os.path.exists(seg_path) and not os.path.exists(sync_seg_path):
+                        logging.info(f"Synchronizing Scene {idx} to exactly {orig_duration:.2f}s...")
+                        try:
+                            # Slice original audio and conform video in one command
+                            subprocess.run([
+                                "ffmpeg", "-y",
+                                "-i", seg_path, # The Veo video
+                                "-ss", f"{orig_start:.3f}", "-t", f"{orig_duration:.3f}", "-i", input_path, # Source audio
+                                "-filter_complex", f"[0:v]setpts=({orig_duration}/4)*PTS[v]", # Adjust based on default Veo 4s base
+                                "-map", "[v]", "-map", "1:a:0",
+                                "-c:v", "libx264", "-c:a", "aac", "-shortest",
+                                sync_seg_path
+                            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        except Exception as e:
+                            logging.error(f"Failed to sync scene {idx}: {e}")
+                            if os.path.exists(seg_path):
+                                sync_seg_path = seg_path
                     
-                    subprocess.run(
-                        [
-                            "ffmpeg", "-y", 
-                            "-i", veo_final_output, 
-                            "-i", input_path, 
-                            "-c:v", "copy", 
-                            "-c:a", "aac", 
-                            "-map", "0:v:0", 
-                            "-map", "1:a:0", 
-                            "-shortest", 
-                            final_with_audio_path
-                        ],
-                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                    )
-                    logging.info(f"Done! Veo Video with original audio saved to: {final_with_audio_path}")
-
-                except subprocess.CalledProcessError:
-                    logging.error("Error concatenating videos with ffmpeg. Check if ffmpeg is installed properly.")
-                    logging.info(f"You can manually concatenate the segments located in: {veo_dir}")
-                except FileNotFoundError:
-                    logging.error("ffmpeg not found. Please install ffmpeg to concatenate the video segments.")
-                    logging.info(f"Segments are located in: {veo_dir}")
+                    if os.path.exists(sync_seg_path):
+                        sync_segments.append(sync_seg_path)
+                
+                # 3. Final Concat
+                if sync_segments:
+                    concat_list_path = os.path.join(base_dir, "veo_segments", "concat_list.txt")
+                    with open(concat_list_path, "w") as f:
+                        for seg in sync_segments:
+                            f.write(f"file '{os.path.abspath(seg)}'\n")
+                    
+                    logging.info(f"Concatenating {len(sync_segments)} synced segments into final trailer...")
+                    try:
+                        subprocess.run(
+                            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list_path, "-c", "copy", veo_final_output],
+                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                        )
+                        logging.info(f"Done! Perfectly Synced Trailer saved to: {veo_final_output}")
+                    except Exception as e:
+                        logging.error(f"Final concatenation failed: {e}")
+                else:
+                    logging.error("No valid segments to assemble.")
 
             else:
                 # Assembly without Veo
