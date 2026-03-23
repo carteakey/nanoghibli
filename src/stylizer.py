@@ -28,7 +28,7 @@ def get_scene_description(client: genai.Client, frame_path: str) -> str:
         image = Image.open(frame_path)
         prompt = "Describe the main subjects, setting, and lighting in this image in one short sentence (max 15 words). Focus on what is visible."
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             contents=[prompt, image]
         )
         description = response.text.strip()
@@ -58,7 +58,7 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
         try:
             image = Image.open(input_path)
             response = client.models.generate_content(
-                model="gemini-3.1-flash-image-preview",
+                model="gemini-2.5-flash-image",
                 contents=[full_prompt, image],
                 config=types.GenerateContentConfig(
                     temperature=temperature,
