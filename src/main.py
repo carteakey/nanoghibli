@@ -52,6 +52,7 @@ def main():
     parser.add_argument("--use_director", action="store_true", help="Use Gemini to first analyze the video and create an intelligent edit script.")
     parser.add_argument("--output_format", choices=["mp4", "gif"], help="Output format for the final video.")
     parser.add_argument("--skip_stylize", action="store_true", help="Skip extraction and stylization and proceed directly to assembly.")
+    parser.add_argument("--skip_video", action="store_true", help="Skip video generation (Veo) and assembly. Useful for pre-production stylization.")
     parser.add_argument("--skip_black_frames", action="store_true", help="Skip black frames during extraction.")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug logging.")
     
@@ -208,34 +209,9 @@ def main():
             with open(scenes_file, "w") as f:
                 json.dump({"fps": video_fps, "scenes": scenes}, f, indent=2)
 
-        else:
-            # Load existing scenes
-            scenes_file = os.path.join(frames_dir, "scenes.json")
-            if os.path.exists(scenes_file):
-                with open(scenes_file, "r") as f:
-                    data = json.load(f)
-                    scenes = data["scenes"]
-                    video_fps = data["fps"]
-            else:
-                logging.error(f"Could not find {scenes_file} to resume scenes for {input_path}.")
-                continue
-                
-            stylized_files = sorted(glob.glob(os.path.join(stylized_dir, "*.png")))
-            stylized_frames = [{"path": p, "original_frame_index": int(os.path.basename(p).split('_')[1].split('.')[0])} for p in stylized_files]
-            if not stylized_frames:
-                 logging.warning(f"No existing stylized frames found for {input_path}. Skipping.")
-                 continue
-            
-            # Map back to scenes
-            stylized_dict = {f["original_frame_index"]: f["path"] for f in stylized_frames}
-            for scene in scenes:
-                scene["stylized_frames"] = []
-                for f in scene["frames"]:
-                    if f["original_frame_index"] in stylized_dict:
-                        scene["stylized_frames"].append({
-                            "path": stylized_dict[f["original_frame_index"]],
-                            "original_frame_index": f["original_frame_index"]
-                        })
+        if args.skip_video:
+            logging.info("=== Pre-Production Finished! Stylized frames are cached. ===")
+            continue
 
         logging.info("=== Phase 3: Assembly & Output ===")
         if args.mode == "video":

@@ -18,7 +18,7 @@ GHIBLI_VIDEO_PROMPT = (
 def generate_scene_video(stylized_frames: List[FrameInfo], output_path: str, duration_seconds: str = "4", scene_description: str = "", metrics: UsageMetrics = None):
     """
     Uses Veo 3.1 to generate a video for a specific scene.
-    Uses scene_description to guide the generation.
+    Uses all available stylized frames as mental context via the prompt to ensure consistency.
     """
     client = genai.Client()
     
@@ -28,12 +28,18 @@ def generate_scene_video(stylized_frames: List[FrameInfo], output_path: str, dur
         logging.warning("No frames provided for Veo generation.")
         return
 
-    # Prepare first image
+    # Prepare first image as the primary visual reference
     with open(stylized_frames[0]["path"], "rb") as f:
         first_image = types.Image(image_bytes=f.read(), mime_type="image/png")
 
-    # Build smart video prompt
-    context_prefix = f"Video of: {scene_description}. " if scene_description else ""
+    # Build smart video prompt with MAXIMUM CONTEXT
+    # We describe the journey from frame 1 to the end
+    if len(stylized_frames) > 1:
+        flow_desc = f" This scene progresses through {len(stylized_frames)} key moments, starting from the visual state of the provided image and ending exactly as described in the scene context."
+    else:
+        flow_desc = ""
+
+    context_prefix = f"Video of: {scene_description}.{flow_desc} " if scene_description else ""
     full_video_prompt = f"{context_prefix}{GHIBLI_VIDEO_PROMPT}"
 
     kwargs = {
