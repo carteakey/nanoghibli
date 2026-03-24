@@ -16,19 +16,19 @@ class UsageMetrics:
 
     def __str__(self):
         # Estimated pricing (approximate)
-        # Flash Lite (Descriptions): $0.075 / 1M input, $0.30 / 1M output
-        # Flash Image: $0.0007 per image
-        # Pro Image: $0.05 per image (High Reasoning / Thinking)
-        # Veo 3.1: $0.25 per 1 video generation
+        # Gemini 3.1 Flash-Lite: $0.25 / 1M input, $1.50 / 1M output
+        # Gemini 3.1 Flash Image: ~$0.067 per 1K image
+        # Gemini 3 Pro Image: ~$0.135 per 1K/2K image
+        # Veo 3.1 Fast: $0.15 per second (assuming 4s videos = $0.60 per video)
         
-        flash_cost = (self.input_tokens / 1_000_000 * 0.075) + (self.output_tokens / 1_000_000 * 0.30)
+        flash_cost = (self.input_tokens / 1_000_000 * 0.25) + (self.output_tokens / 1_000_000 * 1.50)
         
         if self.model_tier == "pro":
-            image_cost = self.images_processed * 0.05
+            image_cost = self.images_processed * 0.135
         else:
-            image_cost = self.images_processed * 0.0007
+            image_cost = self.images_processed * 0.067
             
-        veo_cost = self.videos_generated * 0.25
+        veo_cost = self.videos_generated * 0.60
         total_cost = flash_cost + image_cost + veo_cost
         
         return (
