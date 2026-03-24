@@ -1,0 +1,79 @@
+=== Session ID: dune_30s_pyscenedetect ===
+
+=== Phase 1: Frame Extraction ===
+Detecting scene boundaries in Dune_2021_TLR-1_H-264_1080p_PCM_DTS_AC-3_51_ETR.mkv...
+Found 7 scenes using PySceneDetect.
+Extracted 14 frames across 7 scenes.
+Original video FPS was: 24.0. Target FPS is 12.0.
+
+=== Phase 2: Stylization (Nano Banana 2) ===
+Stylizing 14 remaining frames...
+Stylizing 14 frames...
+  0%|          | 0/14 [00:00<?, ?it/s]  7%|▋         | 1/14 [00:11<02:34, 11.89s/it] 14%|█▍        | 2/14 [00:31<03:15, 16.30s/it] 21%|██▏       | 3/14 [00:46<02:55, 15.94s/it] 29%|██▊       | 4/14 [01:06<02:54, 17.47s/it] 36%|███▌      | 5/14 [01:21<02:29, 16.61s/it] 43%|████▎     | 6/14 [01:38<02:12, 16.51s/it] 50%|█████     | 7/14 [01:53<01:52, 16.11s/it] 57%|█████▋    | 8/14 [02:07<01:33, 15.50s/it] 64%|██████▍   | 9/14 [02:22<01:16, 15.35s/it] 71%|███████▏  | 10/14 [02:36<00:59, 14.87s/it] 79%|███████▊  | 11/14 [02:51<00:45, 15.06s/it] 86%|████████▌ | 12/14 [03:15<00:35, 17.82s/it] 93%|█████████▎| 13/14 [03:48<00:22, 22.24s/it]100%|██████████| 14/14 [04:03<00:00, 20.25s/it]100%|██████████| 14/14 [04:03<00:00, 17.43s/it]
+
+=== Phase 3: Assembly & Output ===
+Generating Veo segments for 7 scenes...
+Generating Scene 0/7: original length 7.8s -> requesting 8s Veo video
+Generating Veo 3.1 video for scene (1 frames) -> data/output/dune_30s_pyscenedetect/veo_segments/veo_scene_0000.mp4 (Duration: 8s)
+Waiting for Veo 3.1 video generation to complete... (this may take a few minutes)
+Waiting for Veo 3.1 video generation to complete... (this may take a few minutes)
+Waiting for Veo 3.1 video generation to complete... (this may take a few minutes)
+Waiting for Veo 3.1 video generation to complete... (this may take a few minutes)
+Waiting for Veo 3.1 video generation to complete... (this may take a few minutes)
+Veo 3.1 generated video saved to data/output/dune_30s_pyscenedetect/veo_segments/veo_scene_0000.mp4
+Generating Scene 1/7: original length 3.2s -> requesting 4s Veo video
+Generating Veo 3.1 video for scene (6 frames) -> data/output/dune_30s_pyscenedetect/veo_segments/veo_scene_0001.mp4 (Duration: 4s)
+Traceback (most recent call last):
+  File "/Users/kchauhan/repos/nanoghibli/src/main.py", line 215, in <module>
+    main()
+    ~~~~^^
+  File "/Users/kchauhan/repos/nanoghibli/src/main.py", line 165, in main
+    generate_scene_video(scene_stylized, seg_path, duration_seconds=dur_str)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kchauhan/repos/nanoghibli/src/veo_animator.py", line 48, in generate_scene_video
+    operation = client.models.generate_videos(**kwargs)
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/google/genai/models.py", line 6219, in generate_videos
+    return self._generate_videos(
+           ~~~~~~~~~~~~~~~~~~~~~^
+        model=model,
+        ^^^^^^^^^^^^
+    ...<4 lines>...
+        config=config,
+        ^^^^^^^^^^^^^^
+    )
+    ^
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/google/genai/models.py", line 5503, in _generate_videos
+    response = self._api_client.request(
+        'post', path, request_dict, http_options
+    )
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/google/genai/_api_client.py", line 1401, in request
+    response = self._request(http_request, http_options, stream=False)
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/google/genai/_api_client.py", line 1237, in _request
+    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/tenacity/__init__.py", line 470, in __call__
+    do = self.iter(retry_state=retry_state)
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/tenacity/__init__.py", line 371, in iter
+    result = action(retry_state)
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/tenacity/__init__.py", line 413, in exc_check
+    raise retry_exc.reraise()
+          ~~~~~~~~~~~~~~~~~^^
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/tenacity/__init__.py", line 184, in reraise
+    raise self.last_attempt.result()
+          ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/concurrent/futures/_base.py", line 443, in result
+    return self.__get_result()
+           ~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/concurrent/futures/_base.py", line 395, in __get_result
+    raise self._exception
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/tenacity/__init__.py", line 473, in __call__
+    result = fn(*args, **kwargs)
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/google/genai/_api_client.py", line 1214, in _request_once
+    errors.APIError.raise_for_response(response)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/google/genai/errors.py", line 134, in raise_for_response
+    cls.raise_error(response.status_code, response_json, response)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kchauhan/repos/nanoghibli/venv/lib/python3.14/site-packages/google/genai/errors.py", line 159, in raise_error
+    raise ClientError(status_code, response_json, response)
+google.genai.errors.ClientError: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Your use case is currently not supported.  Please refer to Gemini API documentation for current model offering.', 'status': 'INVALID_ARGUMENT'}}
