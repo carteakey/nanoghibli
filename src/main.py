@@ -57,6 +57,7 @@ def main():
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug logging.")
     
     # Model parameters
+    parser.add_argument("--stylizer_model", choices=["flash", "pro"], default="flash", help="Choose between high-efficiency (flash) and high-fidelity (pro) stylizer models.")
     parser.add_argument("--temperature", type=float, help="Temperature for stylizer model.")
     parser.add_argument("--top_p", type=float, help="Top_p for stylizer model.")
     parser.add_argument("--top_k", type=int, help="Top_k for stylizer model.")
@@ -91,7 +92,16 @@ def main():
         return
 
     client = genai.Client()
-    metrics = UsageMetrics()
+    
+    # Model Selection
+    if args.stylizer_model == "pro":
+        stylizer_model_id = "gemini-3-pro-image-preview"
+        model_tier = "pro"
+    else:
+        stylizer_model_id = "gemini-3.1-flash-image-preview"
+        model_tier = "flash"
+
+    metrics = UsageMetrics(model_tier=model_tier)
     
     cache_base = "data/cache"
     stylized_cache = os.path.join(cache_base, "stylized")
@@ -160,7 +170,7 @@ def main():
                 logging.warning(f"No scenes/frames extracted for {input_path}. Skipping.")
                 continue
 
-            logging.info("=== Phase 2: Stylization (Nano Banana 2) ===")
+            logging.info(f"=== Phase 2: Stylization ({args.stylizer_model.upper()}) ===")
             
             # Stylize scene by scene to maintain consistency and generate descriptions
             all_stylized_frames = []
@@ -186,10 +196,11 @@ def main():
                         scene_frames_needed.append(f)
                 
                 if scene_frames_needed:
-                    logging.info(f"Stylizing scene {scene['scene_index']} ({len(scene_frames_needed)} frames)...")
+                    logging.info(f"Stylizing scene {scene['scene_index']} ({len(scene_frames_needed)} frames) using {args.stylizer_model.upper()}...")
                     new_stylized = stylize_frames(
                         scene_frames_needed, 
                         stylized_dir, 
+                        model_id=stylizer_model_id,
                         cache_dir=stylized_cache,
                         max_workers=max_workers, 
                         temperature=temp, 

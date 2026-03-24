@@ -50,18 +50,19 @@ def get_scene_description(client: genai.Client, frame_path: str, metrics: UsageM
         logging.warning(f"Failed to generate scene description: {e}")
         return ""
 
-def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir: str, cache_dir: str = "data/cache/stylized", max_retries: int = 5, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> Optional[FrameInfo]:
+def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir: str, model_id: str = "gemini-3.1-flash-image-preview", cache_dir: str = "data/cache/stylized", max_retries: int = 5, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> Optional[FrameInfo]:
     input_path = frame_info["path"]
     orig_index = frame_info.get("original_frame_index", 0)
     
     # 1. Check Global Cache
+    # Append model_id type to hash to ensure different models have different cache entries
     frame_hash = get_file_hash(input_path)
-    cache_path = os.path.join(cache_dir, f"{frame_hash}.png")
+    model_slug = "pro" if "pro" in model_id else "flash"
+    cache_path = os.path.join(cache_dir, f"{frame_hash}_{model_slug}.png")
     out_name = f"stylized_{orig_index:06d}.png"
     out_path = os.path.join(output_dir, out_name)
     
     if os.path.exists(cache_path):
-        # Already stylized in a previous run!
         import shutil
         if not os.path.exists(out_path):
             shutil.copy(cache_path, out_path)
@@ -84,7 +85,7 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
         try:
             image = Image.open(input_path)
             response = client.models.generate_content(
-                model="gemini-3.1-flash-image-preview",
+                model=model_id,
                 contents=[full_prompt, image],
                 config=types.GenerateContentConfig(
                     temperature=temperature,
@@ -131,7 +132,7 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
     logging.error(f"Failed to stylize {input_path} after {max_retries} attempts.")
     return None
 
-def stylize_frames(frames: List[FrameInfo], output_dir: str, cache_dir: str = "data/cache/stylized", max_workers: int = 4, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> List[FrameInfo]:
+def stylize_frames(frames: List[FrameInfo], output_dir: str, model_id: str = "gemini-3.1-flash-image-preview", cache_dir: str = "data/cache/stylized", max_workers: int = 4, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> List[FrameInfo]:
     """
     Takes a list of frame dicts and stylizes each concurrently using the Gemini API.
     Uses scene_description to maintain consistency.
@@ -144,10 +145,10 @@ def stylize_frames(frames: List[FrameInfo], output_dir: str, cache_dir: str = "d
     client = genai.Client()
     stylized_frames: List[FrameInfo] = []
 
-    logging.info(f"Stylizing {len(frames)} frames with description: '{scene_description}'")
+    logging.info(f"Stylizing {len(frames)} frames with model {model_id} and description: '{scene_description}'")
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_single_frame, client, f, output_dir, cache_dir, 5, temperature, top_p, top_k, scene_description, metrics): f for f in frames}
+        futures = {executor.submit(process_single_frame, client, f, output_dir, model_id, cache_dir, 5, temperature, top_p, top_k, scene_description, metrics): f for f in frames}
         for future in tqdm(as_completed(futures), total=len(frames)):
             result = future.result()
             if result:
