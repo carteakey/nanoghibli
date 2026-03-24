@@ -8,17 +8,18 @@ NanoGhibli v2.2 moves beyond simple computer vision to a **"Director-First"** ar
 
 1.  **Phase 0: The Director Phase (`--use_director`)**: Gemini 3.1 Flash "watches" a low-res proxy of your video. It generates a structured **JSON Edit Script** that identifies dialogue, action, and landscapes, assigning importance scores and visual descriptions to each scene.
 2.  **Phase 1: Adaptive Extraction**: Instead of fixed frame rates, the pipeline adjusts its sampling density based on the Director's script (e.g., 1.0 FPS for intense dialogue, 0.25 FPS for vast landscapes). This ensures crucial details are captured while minimizing API costs.
-3.  **Phase 2: Global Cached Stylization**: Frames are stylized using **Gemini 3.1 Flash Image**. Every frame is MD5-hashed and stored in a global cache (`data/cache/stylized/`). If a frame has been stylized in any previous session, it is reused instantly.
+3.  **Phase 2: Global Cached Stylization**: Frames are stylized using **Gemini 3.1 Flash Image** or **Gemini 3 Pro Image**. Every frame is MD5-hashed and stored in a global cache (`data/cache/stylized/`). If a frame has been stylized in any previous session, it is reused instantly.
 4.  **Phase 3: Perfect Sync Animation**: Stylized frames are bridge-animated using **Veo 3.1 Fast**. The resulting clips are conformed via FFmpeg `setpts` to match the original movie's timing exactly, ensuring dialogue and audio remain perfectly synced.
 5.  **Phase 4: Atomic Assembly**: Synced segments are concatenated and merged with the original audio track to produce the final trailer.
 
 ## Key Features
 
+- **Dual-Tier Stylization**: Choose between **Nano Banana 2** (Flash) for high-efficiency previews and **Nano Banana Pro** (Gemini 3 Pro) for professional-grade reasoning and artistic fidelity.
 - **Multimodal Understanding**: Uses Gemini 3.1's massive context window to "understand" the narrative flow before processing.
-- **Content-Addressable Library**: Semantic naming and hashing mean you never pay for the same stylization twice.
+- **Content-Addressable Library**: Semantic naming and hashing mean you never pay for the same stylization twice. Cache is model-aware (Flash and Pro versions are cached separately).
 - **Perfect Audio Sync**: Per-scene atomic muxing and temporal conforming keep the soundtrack locked to the visuals.
 - **Pre-Production Mode (`--skip_video`)**: Finish all expensive vision work and descriptions before committing to the 4-video-per-day Veo limit.
-- **Cost Transparency**: Detailed session cost estimation provided at the end of every run.
+- **Cost Transparency**: Detailed session cost estimation provided at the end of every run, accounting for the selected model tier.
 
 ## Setup
 
@@ -64,10 +65,12 @@ Transform a folder of static images into Studio Ghibli-style art.
 python src/main.py \
   --mode photo \
   --input data/input/my_photos/ \
+  --stylizer_model pro \
   --session_id ghibli_collection
 ```
+- **Stylizer Models**: Use `--stylizer_model pro` for the highest quality art (Nano Banana Pro) or stick with the default `flash` for maximum speed and lowest cost.
 - **Smart Anchoring**: Each image is analyzed by Gemini 3.1 Flash Lite to generate a unique visual description before stylization, ensuring lighting and subjects are respected.
-- **Global Cache**: Images already stylized in any previous video or photo run will be instantly pulled from `data/cache/stylized/` at $0 cost.
+- **Global Cache**: Images already stylized in any previous run will be instantly pulled from `data/cache/stylized/` at $0 cost.
 - **Output**: Results are saved in `data/output/<session_id>/stylized_frames/`.
 
 ## Architectural Decision: Global vs. Chunked Director

@@ -7,11 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.2.0] - 2026-03-23
 ### Added
+- **Dual-Tier Stylization:** Support for both `flash` (Nano Banana 2) and `pro` (Nano Banana Pro) models via the `--stylizer_model` flag.
+- **Nano Banana Pro Support:** Integration of `gemini-3-pro-image-preview` for high-fidelity reasoning and professional-grade Studio Ghibli art.
+- **Model-Aware Caching:** Global cache now separates assets by model tier, ensuring Flash and Pro versions of the same frame are cached independently.
 - **Content-Addressable Library:** Implemented MD5-based global frame caching in `data/cache/stylized/`. Stylizing the same frame twice now costs $0 across all sessions.
 - **Semantic Segment Naming:** Synced video segments are now named by video slug and timestamps (`dune_005000_010000_sync.mp4`), enabling cross-run asset sharing and effortless merging.
 - **Pre-Production Mode:** Added `--skip_video` flag to allow users to finish all stylization and caching before committing to expensive video generation runs.
 - **Maximum Context VEO:** Updated VEO prompts to reference the entire sequence of stylized frames, improving narrative flow in generated scenes.
-- **Cost Reporting:** Real-time session cost estimation printed at the end of every run.
+- **Cost Reporting:** Real-time session cost estimation printed at the end of every run, with tier-specific pricing ($0.05 for Pro images).
 
 ## [2.1.0] - 2026-03-23
 ### Added
