@@ -19,7 +19,9 @@ NanoGhibli v2.2 moves beyond simple computer vision to a **"Director-First"** ar
 - **Content-Addressable Library**: Semantic naming and hashing mean you never pay for the same stylization twice. Cache is model-aware (Flash and Pro versions are cached separately).
 - **Perfect Audio Sync**: Per-scene atomic muxing and temporal conforming keep the soundtrack locked to the visuals.
 - **Pre-Production Mode (`--skip_video`)**: Finish all expensive vision work and descriptions before committing to the 4-video-per-day Veo limit.
-- **Cost Transparency**: Detailed session cost estimation provided at the end of every run, accounting for the selected model tier.
+- **Batch API Stylization (`--batch`)**: Route stylization through the Gemini Batch API for **50% cost** and higher rate limits. Async with a 24h SLO (usually minutes). Veo stays synchronous — batch doesn't support video.
+- **Quota-Safe Resume**: Every phase writes progress to disk (`scenes.json`, `veo_progress.json`, `batch_jobs.json`). If Veo hits its 10/day cap mid-run, rerun with the same `--session_id X` and the pipeline picks up exactly where it stopped.
+- **Cost Transparency**: Detailed session cost estimation at the end of every run, accounting for per-model rates, batch tier, and actual Veo seconds generated.
 
 ## Setup
 
@@ -58,6 +60,37 @@ python src/main.py \
   --skip_video \
   --session_id preprod_run
 ```
+
+### Batch API Stylization (`--batch`)
+Stylize at **50% cost** by routing frames through the Gemini Batch API. The CLI
+blocks on polling (SLO 24h, typical completion: a few minutes). Veo stays
+synchronous because the Batch API does not support video generation.
+```bash
+python src/main.py \
+  --mode video \
+  --input my_movie.mp4 \
+  --batch \
+  --use_veo \
+  --session_id batch_trailer
+```
+The batch job name is persisted to `data/output/<session_id>/batch_jobs.json`.
+Kill and restart the CLI — on the next run it picks up the same job rather than
+resubmitting.
+
+### Resuming After a Quota Hit
+Every phase hot-writes state to disk:
+- `scenes.json` — descriptions + stylized frame paths, updated per scene.
+- `veo_progress.json` — per-segment Veo state (`pending`/`veo_done`/`synced`/`failed`).
+- `batch_jobs.json` — active/terminated batch jobs keyed by input content.
+
+If Veo hits its **10-per-day** cap (or stylizer hits daily quota), the CLI logs:
+```
+Daily quota exhausted: …
+Rerun with --session_id <id> after quota resets to resume.
+```
+Tomorrow, rerun with the same `--session_id` and the same inputs — completed
+scenes are skipped, pending Veo segments are picked up, and a running batch is
+polled to completion instead of resubmitted.
 
 ### Batch Ghiblifying Photos
 Transform a folder of static images into Studio Ghibli-style art.

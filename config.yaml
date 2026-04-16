@@ -18,3 +18,8 @@ processing:
   output_format: "mp4"
   skip_black_frames: false
   use_veo: false
+  # Gemini Batch API for stylization (50% cost, async, 24h SLO).
+  # CLI --batch overrides this. Veo is NOT supported by batch and stays sync.
+  batch_enabled: false
+  batch_poll_interval: 30       # seconds between client.batches.get polls
+  batch_max_wait_hours: 24.0    # hard stop on how long to wait
