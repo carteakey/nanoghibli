@@ -1,4 +1,5 @@
 import os
+import shutil
 import time
 import logging
 import hashlib
@@ -41,8 +42,8 @@ def get_scene_description(client: genai.Client, frame_path: str, metrics: UsageM
             contents=[prompt, image]
         )
         if metrics:
-            metrics.add_usage(response)
-            metrics.descriptions_generated += 1
+            metrics.add_usage(response, "gemini-3.1-flash-lite-preview")
+            metrics.add_description()
         description = response.text.strip()
         logging.info(f"Generated scene description: {description}")
         return description
@@ -63,7 +64,6 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
     out_path = os.path.join(output_dir, out_name)
     
     if os.path.exists(cache_path):
-        import shutil
         if not os.path.exists(out_path):
             shutil.copy(cache_path, out_path)
         return {
@@ -95,8 +95,8 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
                 )
             )
             if metrics:
-                metrics.add_usage(response)
-                metrics.images_processed += 1
+                metrics.add_usage(response, model_id)
+                metrics.add_image(model_id)
             
             for part in response.parts:
                 if getattr(part, 'thought', False):
@@ -119,7 +119,10 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
             error_msg = str(e).lower()
             if "quota" in error_msg or "per day" in error_msg:
                 logging.error(f"Daily quota hit for Stylizer: {e}. Exiting so you can resume later.")
-                raise QuotaExceededError("Stylizer daily quota exceeded.")
+                qe = QuotaExceededError("Stylizer daily quota exceeded.")
+                if metrics is not None:
+                    qe.metrics_snapshot = metrics
+                raise qe
             
             wait_time = 60 # Handle RPM limits
             logging.warning(f"Rate limit hit for {input_path} (RPM). Waiting {wait_time}s... Error: {e}")
@@ -144,16 +147,47 @@ def stylize_frames(frames: List[FrameInfo], output_dir: str, model_id: str = "ge
 
     client = genai.Client()
     stylized_frames: List[FrameInfo] = []
+    failed = 0
+    quota_hit: Optional[QuotaExceededError] = None
 
     logging.info(f"Stylizing {len(frames)} frames with model {model_id} and description: '{scene_description}'")
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_single_frame, client, f, output_dir, model_id, cache_dir, 5, temperature, top_p, top_k, scene_description, metrics): f for f in frames}
-        for future in tqdm(as_completed(futures), total=len(frames)):
-            result = future.result()
-            if result:
-                stylized_frames.append(result)
 
-    # Ensure frames are returned in order
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                process_single_frame, client, f, output_dir, model_id, cache_dir,
+                5, temperature, top_p, top_k, scene_description, metrics,
+            ): f for f in frames
+        }
+        try:
+            for future in tqdm(as_completed(futures), total=len(frames)):
+                try:
+                    result = future.result()
+                except QuotaExceededError as e:
+                    # Daily quota — stop eagerly so siblings don't burn calls.
+                    quota_hit = e
+                    for pending in futures:
+                        pending.cancel()
+                    break
+                if result:
+                    stylized_frames.append(result)
+                else:
+                    failed += 1
+        finally:
+            # cancel_futures requires Python 3.9+; guard for older runtimes.
+            try:
+                executor.shutdown(wait=True, cancel_futures=(quota_hit is not None))
+            except TypeError:
+                executor.shutdown(wait=True)
+
+    if quota_hit is not None:
+        raise quota_hit
+
+    if failed:
+        logging.warning(
+            f"Stylization: {failed}/{len(frames)} frames failed for this scene "
+            f"(model={model_id}). Continuing with {len(stylized_frames)} frames."
+        )
+
     stylized_frames.sort(key=lambda x: x["original_frame_index"])
     return stylized_frames

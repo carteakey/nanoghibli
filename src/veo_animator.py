@@ -42,14 +42,17 @@ def generate_scene_video(stylized_frames: List[FrameInfo], output_path: str, dur
     context_prefix = f"Video of: {scene_description}.{flow_desc} " if scene_description else ""
     full_video_prompt = f"{context_prefix}{GHIBLI_VIDEO_PROMPT}"
 
+    model_id = "veo-3.1-fast-generate-preview"
+    veo_seconds = int(float(duration_seconds))
+
     kwargs = {
-        "model": "veo-3.1-fast-generate-preview",
+        "model": model_id,
         "prompt": full_video_prompt,
         "image": first_image
     }
-    
+
     config_kwargs = {}
-    config_kwargs["duration_seconds"] = int(float(duration_seconds))
+    config_kwargs["duration_seconds"] = veo_seconds
     config_kwargs["person_generation"] = "allow_adult"
     
     if len(stylized_frames) >= 2:
@@ -65,14 +68,15 @@ def generate_scene_video(stylized_frames: List[FrameInfo], output_path: str, dur
     for attempt in range(max_retries):
         try:
             operation = client.models.generate_videos(**kwargs)
-            if metrics:
-                metrics.videos_generated += 1
             break
         except exceptions.ResourceExhausted as e:
             error_msg = str(e).lower()
             if "quota" in error_msg or "per day" in error_msg:
                 logging.error(f"Daily quota hit for Veo: {e}. Exiting so you can resume later.")
-                raise QuotaExceededError("Veo daily quota exceeded.")
+                qe = QuotaExceededError("Veo daily quota exceeded.")
+                if metrics is not None:
+                    qe.metrics_snapshot = metrics
+                raise qe
             
             wait_time = 60
             logging.warning(f"Veo rate limit hit (RPM). Waiting {wait_time}s... Error: {e}")
@@ -111,6 +115,8 @@ def generate_scene_video(stylized_frames: List[FrameInfo], output_path: str, dur
         try:
              client.files.download(file=video.video)
              video.video.save(output_path)
+             if metrics:
+                 metrics.add_video(model_id, veo_seconds)
              logging.info(f"Veo 3.1 generated video saved to {output_path}")
         except Exception as e:
              logging.warning(f"Could not save video directly: {e}")

@@ -69,32 +69,35 @@ def get_video_script(client: genai.Client, video_path: str, session_dir: str, me
         "4. Output ONLY valid JSON."
     )
 
-    logging.info("Requesting Edit Script from Gemini Director...")
+    # Director runs once per video and drives what becomes the trailer, so
+    # spend on a real video-understanding model rather than the cheapest tier.
+    director_model = "gemini-3-flash-preview"
+
+    logging.info(f"Requesting Edit Script from Gemini Director ({director_model})...")
     try:
         response = client.models.generate_content(
-            model="gemini-3.1-flash-lite-preview", # Upgrade to 3.1 for best video understanding
+            model=director_model,
             contents=[video_file, prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.2 # Lower temperature for structural accuracy
             )
         )
-        
+
         if metrics:
-            metrics.add_usage(response)
-            
+            metrics.add_usage(response, director_model)
+
         script = json.loads(response.text)
         logging.info(f"Director identified {len(script)} key segments.")
         return script
-        
+
     except Exception as e:
         logging.error(f"Failed to generate Director Script: {e}")
         if 'response' in locals():
             logging.debug(f"Raw Response: {response.text}")
         return []
     finally:
-        # Cleanup uploaded file
         try:
             client.files.delete(name=video_file.name)
-        except:
-            pass
+        except Exception as e:
+            logging.debug(f"Could not delete uploaded file {video_file.name}: {e}")
