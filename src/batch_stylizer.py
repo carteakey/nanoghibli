@@ -24,6 +24,7 @@ from google import genai
 from google.genai import types
 
 from models import FrameInfo, QuotaExceededError
+from model_catalog import model_cache_slug
 
 REGISTRY_FILENAME = "batch_jobs.json"
 
@@ -289,7 +290,7 @@ def process_batch_results(
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(cache_dir, exist_ok=True)
 
-    model_slug = "pro" if "pro" in model_id else "flash"
+    model_slug = model_cache_slug(model_id)
     by_key = {item["key"]: item for item in stylize_items}
 
     # Results are in a JSONL file; download and parse line-by-line.

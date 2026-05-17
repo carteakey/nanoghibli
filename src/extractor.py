@@ -9,6 +9,11 @@ from tqdm import tqdm
 
 from models import Scene, FrameInfo
 
+SUPPORTED_PHOTO_EXTENSIONS = [
+    "*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp", "*.tif", "*.tiff",
+    "*.heic", "*.heif",
+]
+
 def find_best_start_frame(cap, start_f, end_f, max_scan=15):
     """
     Scans the first few frames of a scene to find the first one that isn't too dark or empty.
@@ -252,9 +257,8 @@ def get_photos_from_directory(input_dir: str) -> Tuple[List[Scene], float]:
     Treats all photos as a single scene for simplicity, or one scene per photo.
     Let's do one scene per photo.
     """
-    supported_extensions = ["*.jpg", "*.jpeg", "*.png", "*.bmp"]
     photos = []
-    for ext in supported_extensions:
+    for ext in SUPPORTED_PHOTO_EXTENSIONS:
         photos.extend(glob.glob(os.path.join(input_dir, ext)))
         photos.extend(glob.glob(os.path.join(input_dir, ext.upper())))
     

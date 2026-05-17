@@ -1,6 +1,13 @@
 models:
   stylizer:
     name: "gemini-3.1-flash-image-preview"
+    # Optional: spread image-generation calls across model-specific daily
+    # buckets. CLI --stylizer_models overrides this list.
+    # rotation:
+    #   - "gemini-3.1-flash-image-preview"
+    #   - "gemini-3-pro-image-preview-2k"
+    #   - "gpt-image-1.5-high-fidelity"
+    #   - "gemini-3-pro-image-preview"
     temperature: 0.7
     top_p: 0.95
     top_k: 40

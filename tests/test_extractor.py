@@ -8,7 +8,7 @@ import sys
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
-from extractor import extract_scenes_from_video
+from extractor import extract_scenes_from_video, get_photos_from_directory
 
 class TestExtractor(unittest.TestCase):
     def setUp(self):
@@ -38,7 +38,9 @@ class TestExtractor(unittest.TestCase):
         
         # Mock frame reading
         dummy_frame = np.zeros((100, 100, 3), dtype=np.uint8)
-        mock_cap.read.side_effect = [(True, dummy_frame)] * 10 + [(False, None)]
+        # find_best_start_frame scans the scene before extraction, then the
+        # extractor seeks back and reads the scene frames again.
+        mock_cap.read.side_effect = [(True, dummy_frame)] * 20 + [(False, None)]
         
         # Mock scene detection
         mock_scene_start = MagicMock()
@@ -73,7 +75,8 @@ class TestExtractor(unittest.TestCase):
         
         # Mock a large frame (2000x2000)
         large_frame = np.zeros((2000, 2000, 3), dtype=np.uint8)
-        mock_cap.read.side_effect = [(True, large_frame)] * 5 + [(False, None)]
+        # find_best_start_frame consumes 5 reads, then extraction consumes 5.
+        mock_cap.read.side_effect = [(True, large_frame)] * 10 + [(False, None)]
         
         # Mock scene detection (one scene, all 5 frames)
         mock_scene_start = MagicMock()
@@ -95,6 +98,17 @@ class TestExtractor(unittest.TestCase):
         # The internal one is (320, 180). The quality one is (1080, 1080).
         resize_calls = [call for call in mock_resize.call_args_list if call[0][1] == (1080, 1080)]
         self.assertGreater(len(resize_calls), 0)
+
+    def test_photo_directory_includes_heic_stills_and_excludes_mov(self):
+        for name in ["a.HEIC", "b.heif", "c.JPG", "d.mov"]:
+            with open(os.path.join(self.output_dir, name), "wb") as f:
+                f.write(b"test")
+
+        scenes, fps = get_photos_from_directory(self.output_dir)
+        paths = [os.path.basename(scene["frames"][0]["path"]) for scene in scenes]
+
+        self.assertEqual(fps, 1.0)
+        self.assertEqual(paths, ["a.HEIC", "b.heif", "c.JPG"])
 
 if __name__ == "__main__":
     unittest.main()

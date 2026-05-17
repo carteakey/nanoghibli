@@ -101,10 +101,87 @@ python src/main.py \
   --stylizer_model pro \
   --session_id ghibli_collection
 ```
-- **Stylizer Models**: Use `--stylizer_model pro` for the highest quality art (Nano Banana Pro) or stick with the default `flash` for maximum speed and lowest cost.
+- **Stylizer Models**: Use `--stylizer_model pro` for the highest quality art (Nano Banana Pro), `--stylizer_model flash` for Nano Banana 2, or `--stylizer_model nano-banana` for the older Gemini 2.5 Flash Image bucket when you need a larger daily image pool.
+- **Stylizer Rotation**: Use `--stylizer_models flash,pro-2k,gpt-image-1.5-high-fidelity,pro` to round-robin image generation across model-specific daily buckets. OpenAI rotation entries require `OPENAI_API_KEY`; Gemini entries require `GEMINI_API_KEY`.
+- **Manual ChatGPT Fallback**: Add `chatgpt-manual` to the rotation when API buckets are constrained, e.g. `--stylizer_models flash,pro-2k,chatgpt-manual`. The pipeline writes a queue to `data/output/<session_id>/manual_chatgpt/README.md`; save completed ChatGPT Images results into the listed `uploads/` filenames and rerun the same `--session_id` to import them into `stylized_frames/` and the global cache.
 - **Smart Anchoring**: Each image is analyzed by Gemini 3.1 Flash Lite to generate a unique visual description before stylization, ensuring lighting and subjects are respected.
 - **Global Cache**: Images already stylized in any previous run will be instantly pulled from `data/cache/stylized/` at $0 cost.
 - **Output**: Results are saved in `data/output/<session_id>/stylized_frames/`.
+
+### Still-Trailer Assembly and Audit
+For trailer experiments built from per-frame stills, use the sequence assembler
+to preserve exact timing while replacing missing/title/black frames from the
+source. For model outputs that sometimes invent their own black bars, crop the
+generated matte away, crop to one fixed active aspect, and place every generated
+frame into the same active window. This preserves stable bars without creating a
+zoom pulse.
+```bash
+python src/sequence_trailer.py \
+  --preset clean_still_trailer \
+  --image_dir data/output/<session_id>/stylized_frames \
+  --audio_source data/input/trailer.mp4 \
+  --output "data/output/<session_id>/Loganime test v1.mp4" \
+  --input_fps 12 \
+  --output_fps 12 \
+  --expected_frames 1290 \
+  --width 1920 \
+  --height 1080 \
+  --source_image_dir data/input/<trailer>/trailer_12fps_motion_frames \
+  --title_source_ranges 49-63 \
+  --tail_source_range 1130-1289 \
+  --overlay_letterbox_pixels 129 \
+  --fill_missing
+```
+
+The `clean_still_trailer` preset generalizes the Logan workflow fixes:
+generated frames use a stable cover fit, source fallback frames crop embedded
+source bars before cover fitting, true-black source frames are preserved instead
+of filled from neighboring generated frames, and title/tail source ranges are
+merged into the source override list. Use `--overlay_letterbox_pixels` when a
+reference frame establishes an exact bar height; this overlays fixed bars after
+all fitting so mixed source/generated frames do not pulse or drift.
+
+For the intentional hybrid/glitch version where missing stylized frames flash
+back to the real trailer, replace `--fill_missing` with
+`--source_flash_for_missing`.
+
+Audit source vs. stylized stills and generate contact sheets:
+```bash
+python src/trailer_frame_audit.py \
+  --source_dir data/input/<trailer>/trailer_12fps_motion_frames \
+  --stylized_dir data/output/<session_id>/stylized_frames \
+  --output_dir data/output/<session_id>/audit \
+  --expected_frames 1290 \
+  --contact_ranges 0-69,1118-1209,1200-1289
+```
+
+### Image Model Comparison Grid
+Run the same prompt library through Nano Banana Pro, Nano Banana 2, and Imagen
+4 Fast/Standard/Ultra. The tool writes generated images, a CSV leaderboard, an
+HTML report, and a manual upload lane for ChatGPT images created from your
+subscription.
+
+Prepare the grid shell and ChatGPT upload instructions without spending API:
+```bash
+python src/image_grid.py --prepare_only --session_id image_grid_test
+```
+
+Run the API-backed grid:
+```bash
+python src/image_grid.py --session_id image_grid_test
+```
+
+Manual ChatGPT comparison flow:
+1. Open `data/output/image_grid/<session_id>/manual_uploads/README.md`.
+2. Generate each listed prompt in ChatGPT Images.
+3. Save each file using the exact requested name, e.g. `kitchen_sign__chatgpt.png`.
+4. Rerun scoring/report generation:
+   ```bash
+   python src/image_grid.py --session_id image_grid_test --score_existing
+   ```
+
+The default prompt library lives at `prompts/image_grid.yaml`. Edit it to
+add prompt IDs, categories, exact text targets, and subject requirements.
 
 ## Architectural Decision: Global vs. Chunked Director
 

@@ -3,6 +3,8 @@ import shutil
 import time
 import logging
 import hashlib
+import base64
+import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
 from google.genai import types
@@ -12,12 +14,21 @@ from tqdm import tqdm
 from typing import List, Optional
 
 from models import FrameInfo, UsageMetrics, QuotaExceededError
+from model_catalog import model_cache_slug, model_provider
+
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    register_heif_opener = None
 
 GHIBLI_PROMPT = (
     "Modify this image into a Studio Ghibli homage. "
     "Keep the exact same structural composition, objects, and subjects, but render it in a beautiful, "
     "hand-drawn anime style reminiscent of classic 90s animation. "
-    "Use lush, vibrant watercolor backgrounds, distinct clean character/object outlines, and soft, magical lighting. "
+    "Retain the original color palette, contrast, lighting direction, and framing. "
+    "Use distinct clean character/object outlines and restrained painted texture. "
+    "Do not add extra greenery, grass, trees, flowers, pastoral scenery, blue skies, or magical glow unless those elements are already visible in the source image. "
     "This is strictly an homage to visualize how things would look in that style. "
     "CRITICAL: You must follow the source image exactly. Do not hallucinate, invent, or add any new elements, objects, text, or details that are not explicitly present in the original image. Do not fill in any blanks."
 )
@@ -35,6 +46,8 @@ def get_scene_description(client: genai.Client, frame_path: str, metrics: UsageM
     Asks Gemini to briefly describe the scene to use as a context prompt.
     """
     try:
+        if frame_path.lower().endswith((".heic", ".heif")) and register_heif_opener is None:
+            raise RuntimeError("HEIC input requires the `pillow-heif` package.")
         image = Image.open(frame_path)
         prompt = "Describe the main subjects, setting, and lighting in this image in one short sentence (max 15 words). Focus on what is visible."
         response = client.models.generate_content(
@@ -51,6 +64,45 @@ def get_scene_description(client: genai.Client, frame_path: str, metrics: UsageM
         logging.warning(f"Failed to generate scene description: {e}")
         return ""
 
+
+def _openai_size_for_image(image: Image.Image) -> str:
+    w, h = image.size
+    if w > h * 1.15:
+        return "1536x1024"
+    if h > w * 1.15:
+        return "1024x1536"
+    return "1024x1024"
+
+
+def _generate_openai_image(input_path: str, prompt: str, model_id: str):
+    try:
+        from openai import OpenAI
+    except ImportError as e:
+        raise RuntimeError(
+            "OpenAI stylization requires the `openai` package. "
+            "Install requirements.txt and set OPENAI_API_KEY."
+        ) from e
+
+    if input_path.lower().endswith((".heic", ".heif")) and register_heif_opener is None:
+        raise RuntimeError("HEIC input requires the `pillow-heif` package.")
+
+    with Image.open(input_path) as image_for_size:
+        size = _openai_size_for_image(image_for_size)
+
+    client = OpenAI()
+    with open(input_path, "rb") as image_file:
+        response = client.images.edit(
+            model=model_id,
+            image=image_file,
+            prompt=prompt,
+            size=size,
+            quality="high",
+            input_fidelity="high",
+        )
+
+    b64 = response.data[0].b64_json
+    return Image.open(io.BytesIO(base64.b64decode(b64)))
+
 def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir: str, model_id: str = "gemini-3.1-flash-image-preview", cache_dir: str = "data/cache/stylized", max_retries: int = 5, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> Optional[FrameInfo]:
     input_path = frame_info["path"]
     orig_index = frame_info.get("original_frame_index", 0)
@@ -58,7 +110,7 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
     # 1. Check Global Cache
     # Append model_id type to hash to ensure different models have different cache entries
     frame_hash = get_file_hash(input_path)
-    model_slug = "pro" if "pro" in model_id else "flash"
+    model_slug = model_cache_slug(model_id)
     cache_path = os.path.join(cache_dir, f"{frame_hash}_{model_slug}.png")
     out_name = f"stylized_{orig_index:06d}.png"
     out_path = os.path.join(output_dir, out_name)
@@ -83,6 +135,21 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
 
     for attempt in range(max_retries):
         try:
+            if input_path.lower().endswith((".heic", ".heif")) and register_heif_opener is None:
+                raise RuntimeError("HEIC input requires the `pillow-heif` package.")
+            if model_provider(model_id) == "openai":
+                out_img = _generate_openai_image(input_path, full_prompt, model_id)
+                out_img.save(out_path)
+                if not os.path.exists(cache_dir):
+                    os.makedirs(cache_dir)
+                out_img.save(cache_path)
+                if metrics:
+                    metrics.add_image(model_id)
+                return {
+                    "path": out_path,
+                    "original_frame_index": orig_index
+                }
+
             image = Image.open(input_path)
             response = client.models.generate_content(
                 model=model_id,
@@ -128,6 +195,17 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
             logging.warning(f"Rate limit hit for {input_path} (RPM). Waiting {wait_time}s... Error: {e}")
             time.sleep(wait_time)
         except Exception as e:
+            msg = str(e).lower()
+            if model_provider(model_id) == "openai" and ("quota" in msg or "billing" in msg):
+                qe = QuotaExceededError("OpenAI image quota exceeded.")
+                if metrics is not None:
+                    qe.metrics_snapshot = metrics
+                raise qe
+            if model_provider(model_id) == "openai" and "rate limit" in msg:
+                wait_time = 60
+                logging.warning(f"OpenAI rate limit hit for {input_path}. Waiting {wait_time}s... Error: {e}")
+                time.sleep(wait_time)
+                continue
             logging.warning(f"Error stylizing {input_path} on attempt {attempt+1}: {e}")
             if attempt < max_retries - 1:
                 time.sleep(5 * (2 ** attempt)) # Standard exponential backoff

@@ -9,16 +9,26 @@ import logging
 import yaml
 import re
 import shutil
+from collections import defaultdict
 from google import genai
 from dotenv import load_dotenv
 
 from extractor import extract_scenes_from_video, get_photos_from_directory, extract_frames_from_script
-from stylizer import stylize_frames, get_scene_description, GHIBLI_PROMPT
+from stylizer import stylize_frames, get_scene_description, GHIBLI_PROMPT, get_file_hash
 from animator import create_video_from_frames
 from veo_animator import generate_scene_video
 from director import get_video_script
 from models import UsageMetrics, QuotaExceededError
+from model_catalog import (
+    model_cache_slug,
+    model_label,
+    model_provider,
+    normalize_stylizer_model,
+    normalize_stylizer_models,
+    rotation_signature,
+)
 import batch_stylizer
+from manual_chatgpt import queue_manual_frames
 
 def get_slug(path: str) -> str:
     """Creates a URL-friendly slug from a filename."""
@@ -38,7 +48,7 @@ def load_config(config_path: str) -> dict:
         logging.warning(f"Config file {config_path} not found. Using defaults.")
         return {}
     with open(config_path, "r") as f:
-        return yaml.safe_load(f)
+        return yaml.safe_load(f) or {}
 
 
 def pick(cli_val, cfg_val, default):
@@ -89,7 +99,8 @@ def _run_main():
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug logging.")
     
     # Model parameters
-    parser.add_argument("--stylizer_model", choices=["flash", "pro"], default="flash", help="Choose between high-efficiency (flash) and high-fidelity (pro) stylizer models.")
+    parser.add_argument("--stylizer_model", default=None, help="Single stylizer model or alias: flash, pro, pro-2k.")
+    parser.add_argument("--stylizer_models", default=None, help="Comma-separated stylizer rotation list. Example: flash,pro-2k,pro")
     parser.add_argument("--temperature", type=float, help="Temperature for stylizer model.")
     parser.add_argument("--top_p", type=float, help="Top_p for stylizer model.")
     parser.add_argument("--top_k", type=int, help="Top_k for stylizer model.")
@@ -133,13 +144,29 @@ def _run_main():
 
     client = genai.Client()
     
-    # Model Selection
-    if args.stylizer_model == "pro":
-        stylizer_model_id = "gemini-3-pro-image-preview"
-        model_tier = "pro"
-    else:
-        stylizer_model_id = "gemini-3.1-flash-image-preview"
-        model_tier = "flash"
+    # Model selection. A rotation list spreads image-generation requests across
+    # model-specific daily buckets; a single model keeps historical behavior.
+    cfg_rotation = stylizer_cfg.get("rotation") or stylizer_cfg.get("models")
+    try:
+        if args.stylizer_models:
+            stylizer_model_ids = normalize_stylizer_models([args.stylizer_models])
+        elif args.stylizer_model:
+            stylizer_model_ids = [normalize_stylizer_model(args.stylizer_model)]
+        elif cfg_rotation:
+            stylizer_model_ids = normalize_stylizer_models(cfg_rotation)
+        else:
+            stylizer_model_ids = [normalize_stylizer_model(stylizer_cfg.get("name", "flash"))]
+    except ValueError as e:
+        parser.error(str(e))
+
+    model_tier = rotation_signature(stylizer_model_ids)
+    logging.info(
+        "Stylizer model rotation: "
+        + ", ".join(f"{model_label(m)} ({m})" for m in stylizer_model_ids)
+    )
+    if any(model_provider(m) == "openai" for m in stylizer_model_ids) and not os.getenv("OPENAI_API_KEY"):
+        logging.error("OPENAI_API_KEY environment variable not set, but OpenAI stylizer rotation is enabled.")
+        return
 
     metrics = UsageMetrics(model_tier=model_tier)
 
@@ -210,7 +237,8 @@ def _run_main():
                 logging.warning(f"No scenes/frames extracted for {input_path}. Skipping.")
                 continue
 
-            mode_label = "BATCH" if batch_enabled else args.stylizer_model.upper()
+            rotation_label = "+".join(model_label(m) for m in stylizer_model_ids)
+            mode_label = f"BATCH {rotation_label}" if batch_enabled else rotation_label
             logging.info(f"=== Phase 2: Stylization ({mode_label}) ===")
 
             # Stylize scene by scene to maintain consistency and generate descriptions.
@@ -226,6 +254,7 @@ def _run_main():
             # both paths) and determine which frames still need stylization.
             # Split into per-scene dicts so the batch path can key results back.
             scene_buckets = []  # list of {"scene": ..., "need": [...], "done": [...]}
+            frame_model_counter = 0
             for scene in scenes:
                 if not scene.get("description"):
                     rep_frame = scene["frames"][0]["path"]
@@ -235,6 +264,8 @@ def _run_main():
                 need = []
                 done = []
                 for f in scene["frames"]:
+                    model_for_frame = stylizer_model_ids[frame_model_counter % len(stylizer_model_ids)]
+                    frame_model_counter += 1
                     expected_out_name = f"stylized_{f['original_frame_index']:06d}.png"
                     expected_out_path = os.path.join(stylized_dir, expected_out_name)
                     if os.path.exists(expected_out_path):
@@ -242,53 +273,123 @@ def _run_main():
                             "path": expected_out_path,
                             "original_frame_index": f["original_frame_index"],
                         })
+                        continue
+
+                    frame_hash = get_file_hash(f["path"])
+                    cache_path = os.path.join(
+                        stylized_cache,
+                        f"{frame_hash}_{model_cache_slug(model_for_frame)}.png",
+                    )
+                    if os.path.exists(cache_path):
+                        shutil.copy(cache_path, expected_out_path)
+                        done.append({
+                            "path": expected_out_path,
+                            "original_frame_index": f["original_frame_index"],
+                        })
                     else:
+                        f = dict(f)
+                        f["stylizer_model_id"] = model_for_frame
                         need.append(f)
                 scene_buckets.append({"scene": scene, "need": need, "done": done})
             save_scenes_progress()  # persist descriptions before expensive work
 
             if batch_enabled:
-                # Flatten all needed frames into one batch submission.
-                stylize_items = []
+                # Flatten all needed frames into per-model batch submissions.
+                stylize_items_by_model = defaultdict(list)
                 for b in scene_buckets:
                     scene = b["scene"]
                     desc = scene.get("description", "")
                     context_prefix = f"The scene contains: {desc}. " if desc else ""
                     full_prompt = f"{context_prefix}{GHIBLI_PROMPT}"
                     for f in b["need"]:
-                        stylize_items.append({
+                        model_for_frame = f["stylizer_model_id"]
+                        stylize_items_by_model[model_for_frame].append({
                             "key": f"frame_{f['original_frame_index']:06d}",
                             "frame_path": f["path"],
                             "original_frame_index": f["original_frame_index"],
                             "prompt": full_prompt,
+                            "scene_description": desc,
                         })
 
-                if stylize_items:
+                batch_results = []
+                for model_for_batch, stylize_items in stylize_items_by_model.items():
+                    if not stylize_items:
+                        continue
                     logging.info(
                         f"Submitting batch of {len(stylize_items)} frames "
-                        f"across {len(scene_buckets)} scenes..."
+                        f"across {len(scene_buckets)} scenes using {model_for_batch}..."
                     )
-                    batch_results = batch_stylizer.run_stylize_batch(
-                        client, stylize_items,
-                        model_id=stylizer_model_id,
-                        output_dir=stylized_dir,
-                        cache_dir=stylized_cache,
-                        session_dir=base_dir,
-                        temperature=temp, top_p=top_p, top_k=top_k,
-                        poll_interval=batch_poll_interval,
-                        max_wait_hours=batch_max_wait_hours,
-                    )
-                    # Count token+image costs for the batch (50% tier).
-                    # The batch SDK response doesn't give per-request usage_metadata
-                    # in a reliable shape; we bill per-image at the batch rate.
-                    for _ in batch_results:
-                        metrics.add_image(stylizer_model_id, is_batch=True)
-                    # Map back by original_frame_index so each scene gets its frames.
-                    by_idx = {r["original_frame_index"]: r for r in batch_results}
-                    for b in scene_buckets:
-                        extra = [by_idx[f["original_frame_index"]] for f in b["need"]
-                                 if f["original_frame_index"] in by_idx]
-                        b["done"].extend(extra)
+                    if model_provider(model_for_batch) == "google":
+                        model_results = batch_stylizer.run_stylize_batch(
+                            client, stylize_items,
+                            model_id=model_for_batch,
+                            output_dir=stylized_dir,
+                            cache_dir=stylized_cache,
+                            session_dir=base_dir,
+                            temperature=temp, top_p=top_p, top_k=top_k,
+                            poll_interval=batch_poll_interval,
+                            max_wait_hours=batch_max_wait_hours,
+                        )
+                        # The batch SDK response doesn't give per-request
+                        # usage_metadata in a reliable shape; bill per-image at
+                        # the batch rate for the Gemini model that handled them.
+                        for _ in model_results:
+                            metrics.add_image(model_for_batch, is_batch=True)
+                    elif model_provider(model_for_batch) == "manual":
+                        model_results = []
+                        items_by_description = defaultdict(list)
+                        for item in stylize_items:
+                            items_by_description[item.get("scene_description", "")].append(item)
+                        for scene_description, items in items_by_description.items():
+                            context_prefix = f"The scene contains: {scene_description}. " if scene_description else ""
+                            full_prompt = f"{context_prefix}{GHIBLI_PROMPT}"
+                            model_frames = [
+                                {
+                                    "path": item["frame_path"],
+                                    "original_frame_index": item["original_frame_index"],
+                                }
+                                for item in items
+                            ]
+                            model_results.extend(queue_manual_frames(
+                                model_frames,
+                                full_prompt,
+                                session_dir=base_dir,
+                                output_dir=stylized_dir,
+                                cache_dir=stylized_cache,
+                            ))
+                    else:
+                        logging.info(
+                            f"Model {model_for_batch} is not supported by Gemini Batch; "
+                            "stylizing its rotation slice synchronously."
+                        )
+                        model_results = []
+                        items_by_description = defaultdict(list)
+                        for item in stylize_items:
+                            items_by_description[item.get("scene_description", "")].append(item)
+                        for scene_description, items in items_by_description.items():
+                            model_frames = [
+                                {
+                                    "path": item["frame_path"],
+                                    "original_frame_index": item["original_frame_index"],
+                                }
+                                for item in items
+                            ]
+                            model_results.extend(stylize_frames(
+                                model_frames, stylized_dir,
+                                model_id=model_for_batch, cache_dir=stylized_cache,
+                                max_workers=max_workers, temperature=temp,
+                                top_p=top_p, top_k=top_k,
+                                scene_description=scene_description,
+                                metrics=metrics,
+                            ))
+                    batch_results.extend(model_results)
+
+                # Map back by original_frame_index so each scene gets its frames.
+                by_idx = {r["original_frame_index"]: r for r in batch_results}
+                for b in scene_buckets:
+                    extra = [by_idx[f["original_frame_index"]] for f in b["need"]
+                             if f["original_frame_index"] in by_idx]
+                    b["done"].extend(extra)
 
             else:
                 # Sync path: per-scene stylize_frames(), hot-write scenes.json
@@ -296,19 +397,37 @@ def _run_main():
                 for b in scene_buckets:
                     scene = b["scene"]
                     if b["need"]:
+                        need_by_model = defaultdict(list)
+                        for f in b["need"]:
+                            need_by_model[f["stylizer_model_id"]].append(f)
                         logging.info(
                             f"Stylizing scene {scene['scene_index']} "
-                            f"({len(b['need'])} frames) using {args.stylizer_model.upper()}..."
+                            f"({len(b['need'])} frames) using {rotation_label}..."
                         )
-                        new_stylized = stylize_frames(
-                            b["need"], stylized_dir,
-                            model_id=stylizer_model_id, cache_dir=stylized_cache,
-                            max_workers=max_workers, temperature=temp,
-                            top_p=top_p, top_k=top_k,
-                            scene_description=scene.get("description", ""),
-                            metrics=metrics,
-                        )
-                        b["done"].extend(new_stylized)
+                        for model_for_group, model_frames in need_by_model.items():
+                            if model_provider(model_for_group) == "manual":
+                                context_prefix = (
+                                    f"The scene contains: {scene.get('description', '')}. "
+                                    if scene.get("description") else ""
+                                )
+                                full_prompt = f"{context_prefix}{GHIBLI_PROMPT}"
+                                new_stylized = queue_manual_frames(
+                                    model_frames,
+                                    full_prompt,
+                                    session_dir=base_dir,
+                                    output_dir=stylized_dir,
+                                    cache_dir=stylized_cache,
+                                )
+                            else:
+                                new_stylized = stylize_frames(
+                                    model_frames, stylized_dir,
+                                    model_id=model_for_group, cache_dir=stylized_cache,
+                                    max_workers=max_workers, temperature=temp,
+                                    top_p=top_p, top_k=top_k,
+                                    scene_description=scene.get("description", ""),
+                                    metrics=metrics,
+                                )
+                            b["done"].extend(new_stylized)
                     b["done"].sort(key=lambda x: x["original_frame_index"])
                     scene["stylized_frames"] = b["done"]
                     save_scenes_progress()

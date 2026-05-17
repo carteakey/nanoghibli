@@ -1,0 +1,118 @@
+version: 1
+defaults:
+  aspect_ratio: "1:1"
+  image_size: "1K"
+  style_target: "warm hand-painted animated feature film still, rich watercolor backgrounds, clean readable shapes"
+prompts:
+  - id: kitchen_sign
+    category: text_rendering
+    prompt: "A cozy sunlit kitchen with herbs on the windowsill and three small labels: a wooden sign that says 'SOUP DAY', a jar label that says 'BASIL', and a recipe card titled 'NO ONIONS'."
+    text_targets: ["SOUP DAY", "BASIL", "NO ONIONS"]
+    subject_requirements:
+      - "kitchen interior"
+      - "herbs on windowsill"
+      - "wooden sign"
+      - "labeled jar"
+      - "recipe card"
+  - id: market_map
+    category: text_rendering
+    prompt: "An illustrated village market map on a notice board. The map has a north arrow, a dashed path, and exactly four readable stall labels: 'TEA', 'BREAD', 'FLOWERS', and 'TOOLS'."
+    text_targets: ["TEA", "BREAD", "FLOWERS", "TOOLS"]
+    subject_requirements:
+      - "notice board"
+      - "village market map"
+      - "north arrow"
+      - "dashed path"
+      - "exactly four labeled stalls"
+  - id: train_platform
+    category: subject_adherence
+    prompt: "A quiet rural train platform at golden hour with exactly one red suitcase on the left, exactly two paper lanterns hanging overhead, and one black cat sitting to the right of a blue vending machine."
+    text_targets: []
+    subject_requirements:
+      - "rural train platform"
+      - "one red suitcase"
+      - "two paper lanterns"
+      - "black cat"
+      - "blue vending machine"
+      - "left/right spatial relationship"
+  - id: rainy_bicycle
+    category: subject_adherence
+    prompt: "A blue bicycle leaning against a stone wall after rain, with puddle reflections, a yellow raincoat hanging from the left handlebar, a wicker basket on the rear rack, and no people anywhere."
+    text_targets: []
+    subject_requirements:
+      - "blue bicycle"
+      - "stone wall"
+      - "puddle reflections"
+      - "yellow raincoat on left handlebar"
+      - "wicker basket on rear rack"
+      - "no people"
+  - id: character_sheet
+    category: consistency
+    prompt: "A character design sheet for a curious 10-year-old inventor wearing round glasses, green overalls, red sneakers, a striped yellow scarf, and a brass compass necklace. Show front, side, back, and one small facial-expression inset while keeping the outfit identical in every view."
+    text_targets: []
+    subject_requirements:
+      - "10-year-old inventor"
+      - "round glasses"
+      - "green overalls"
+      - "red sneakers"
+      - "striped yellow scarf"
+      - "brass compass necklace"
+      - "front side back and expression inset"
+      - "consistent outfit across views"
+  - id: tiny_workshop
+    category: detail_control
+    prompt: "A tiny attic workshop filled with exactly seven organized jars of screws, two rolled paper blueprints, a half-built wind-up bird, a brass magnifying glass, and moonlight through a round window."
+    text_targets: []
+    subject_requirements:
+      - "attic workshop"
+      - "exactly seven jars of screws"
+      - "two rolled blueprints"
+      - "half-built wind-up bird"
+      - "brass magnifying glass"
+      - "round moonlit window"
+  - id: no_extra_animals
+    category: hallucination_control
+    prompt: "A simple portrait of one elderly ceramicist at a pottery wheel, holding a plain clay bowl. The room contains shelves and tools, but no animals, no plants, no extra people, no logos, and no text."
+    text_targets: []
+    subject_requirements:
+      - "elderly ceramicist"
+      - "pottery wheel"
+      - "clay bowl"
+      - "no animals"
+      - "no plants"
+      - "no extra people"
+      - "no logos"
+      - "no text"
+  - id: poster_layout
+    category: editability
+    prompt: "A clean travel poster for a cliffside town, with the top 25 percent left as blank blue sky for future title text, a clear central road leading to the town, and an open empty foreground strip for a subtitle."
+    text_targets: []
+    subject_requirements:
+      - "travel poster"
+      - "cliffside town"
+      - "top quarter blank sky"
+      - "clear central road"
+      - "open empty foreground strip"
+  - id: phone_photo_adaptation
+    category: photo_to_style_proxy
+    prompt: "A candid phone-photo-like family picnic transformed into a warm animated film still: two adults and one child on a red picnic blanket, one stroller behind them, city park background, late afternoon light, natural imperfect snapshot framing."
+    text_targets: []
+    subject_requirements:
+      - "two adults"
+      - "one child"
+      - "red picnic blanket"
+      - "one stroller"
+      - "city park"
+      - "late afternoon light"
+      - "phone snapshot framing"
+  - id: low_light_room
+    category: lighting
+    prompt: "A low-light bedroom scene with a single warm desk lamp as the only light source, rain streaks on the window, three books stacked beside a chipped mug, a mirror reflecting only the lamp glow, and soft shadows across the wall."
+    text_targets: []
+    subject_requirements:
+      - "low-light bedroom"
+      - "single warm desk lamp"
+      - "rain streaks on window"
+      - "three books beside a chipped mug"
+      - "mirror reflecting only lamp glow"
+      - "soft wall shadows"

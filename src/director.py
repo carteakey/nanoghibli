@@ -71,7 +71,7 @@ def get_video_script(client: genai.Client, video_path: str, session_dir: str, me
 
     # Director runs once per video and drives what becomes the trailer, so
     # spend on a real video-understanding model rather than the cheapest tier.
-    director_model = "gemini-3-flash-preview"
+    director_model = "gemini-3.1-pro"
 
     logging.info(f"Requesting Edit Script from Gemini Director ({director_model})...")
     try:

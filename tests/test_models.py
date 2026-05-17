@@ -58,6 +58,30 @@ class TestUsageMetrics(unittest.TestCase):
         # All unknown — cost should be 0, not a crash.
         self.assertEqual(m._compute_cost(), 0.0)
 
+    def test_director_model_is_priced(self):
+        m = UsageMetrics()
+        m.add_usage(_Resp(prompt=1000, candidates=500, thoughts=100), "gemini-3.1-pro")
+        # 1000 * $2/1M + 600 * $12/1M
+        self.assertAlmostEqual(m._compute_cost(), 0.0092, places=6)
+
+    def test_pro_2k_image_model_is_priced(self):
+        m = UsageMetrics()
+        m.add_usage(_Resp(prompt=1000, candidates=500), "gemini-3-pro-image-preview-2k")
+        m.add_image("gemini-3-pro-image-preview-2k")
+        self.assertAlmostEqual(m._compute_cost(), 0.002 + 0.006 + 0.134, places=6)
+
+    def test_gpt_image_15_high_fidelity_image_is_priced(self):
+        m = UsageMetrics()
+        m.add_image("gpt-image-1.5")
+        self.assertAlmostEqual(m._compute_cost(), 0.133, places=6)
+
+    def test_imagen_4_variants_are_priced(self):
+        m = UsageMetrics()
+        m.add_image("imagen-4.0-fast-generate-001")
+        m.add_image("imagen-4.0-generate-001")
+        m.add_image("imagen-4.0-ultra-generate-001")
+        self.assertAlmostEqual(m._compute_cost(), 0.12, places=6)
+
     def test_no_usage_metadata_does_not_crash(self):
         class Bare:
             pass

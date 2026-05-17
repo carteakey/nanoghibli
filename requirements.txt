@@ -3,7 +3,9 @@ scenedetect
 opencv-python
 google-genai
 google-api-core
+openai
 Pillow
+pillow-heif
 tqdm
 PyYAML
 pytest

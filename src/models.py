@@ -8,17 +8,28 @@ from typing import TypedDict, List, Dict, Tuple
 # (input_per_1M, output_per_1M). Output price already includes thinking tokens
 # per Google's pricing page.
 TOKEN_RATES: Dict[str, Tuple[float, float]] = {
+    "gemini-2.5-flash-image":         (0.30, 2.50),
     "gemini-3.1-flash-lite-preview":  (0.25, 1.50),
     "gemini-3.1-flash-image-preview": (0.50, 3.00),
     "gemini-3-pro-image-preview":     (2.00, 12.00),
+    "gemini-3-pro-image-preview-2k":  (2.00, 12.00),
     "gemini-3-flash-preview":         (0.50, 3.00),
+    "gemini-3.1-pro":                 (2.00, 12.00),
+    "gemini-3.1-pro-preview":         (2.00, 12.00),
+    "gpt-image-1.5":                  (5.00, 10.00),
 }
 
 # Per-image output price at 1K or 2K resolution. The pipeline caps frames at
 # 1920x1080 (extractor.py), so 1K/2K tier applies; 4K is not reachable.
 IMAGE_OUTPUT_PRICE: Dict[str, float] = {
+    "gemini-2.5-flash-image":         0.039,
     "gemini-3.1-flash-image-preview": 0.067,
     "gemini-3-pro-image-preview":     0.134,
+    "gemini-3-pro-image-preview-2k":  0.134,
+    "gpt-image-1.5":                  0.133,
+    "imagen-4.0-fast-generate-001":   0.020,
+    "imagen-4.0-generate-001":        0.040,
+    "imagen-4.0-ultra-generate-001":  0.060,
 }
 
 # Veo: per-second price at 720p/1080p ("Standard" resolution in the pricing doc).
