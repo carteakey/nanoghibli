@@ -26,9 +26,22 @@ NanoGhibli v2.2 moves beyond simple computer vision to a **"Director-First"** ar
 ## Setup
 
 1. **Install Dependencies:**
-   Ensure you have Python 3 and `ffmpeg` installed. 
+   NanoGhibli supports CPython 3.11.x. The checked-in `requirements.lock`
+   pins the complete runtime and test dependency graph for that interpreter;
+   install it from a clean checkout rather than resolving the unconstrained
+   input list directly.
+
+   On Ubuntu/Debian, install the native FFmpeg prerequisite first:
    ```bash
-   pip install -r requirements.txt
+   sudo apt-get update
+   sudo apt-get install --no-install-recommends -y ffmpeg
+   ```
+   On macOS, use `brew install ffmpeg`.
+
+   ```bash
+   python3.11 -m venv .venv
+   .venv/bin/python -m pip install --upgrade pip
+   .venv/bin/python -m pip install --requirement requirements.lock
    ```
 
 2. **API Keys:**
@@ -36,6 +49,56 @@ NanoGhibli v2.2 moves beyond simple computer vision to a **"Director-First"** ar
    ```bash
    GEMINI_API_KEY=your_key
    ```
+
+### Development and verification
+
+The test suite is account-free: it uses temporary files and provider mocks,
+and `tests/conftest.py` fails any attempted socket connection. Keep Gemini and
+OpenAI credentials unset while running it. The same syntax, import, native
+prerequisite, and test gates run for every push and pull request in
+`.github/workflows/ci.yml`.
+
+From a clean checkout, run the exact local gates with:
+
+```bash
+env -u GEMINI_API_KEY -u GOOGLE_API_KEY -u OPENAI_API_KEY \
+  ffmpeg -version
+
+env -u GEMINI_API_KEY -u GOOGLE_API_KEY -u OPENAI_API_KEY \
+  .venv/bin/python -c 'import cv2; print("OpenCV", cv2.__version__)'
+
+env -u GEMINI_API_KEY -u GOOGLE_API_KEY -u OPENAI_API_KEY \
+  .venv/bin/python -m compileall -q src tests
+
+env -u GEMINI_API_KEY -u GOOGLE_API_KEY -u OPENAI_API_KEY \
+  PYTHONPATH=src .venv/bin/python - <<'PY'
+import importlib
+
+for name in (
+    "animator", "batch_stylizer", "director", "extractor", "image_grid",
+    "main", "manual_chatgpt", "model_catalog", "models", "pull_batch_results",
+    "sequence_trailer", "still_trailer", "stylizer", "submit_stills_batch",
+    "trailer_frame_audit", "veo_animator",
+):
+    importlib.import_module(name)
+print("production imports ok")
+PY
+
+env -u GEMINI_API_KEY -u GOOGLE_API_KEY -u OPENAI_API_KEY \
+  PYTHONPATH=src .venv/bin/python -m pytest --strict-config --strict-markers -q
+```
+
+`requirements.txt` is the human-edited input list. If it changes, regenerate
+the lock with the pinned toolchain target and review the resulting diff:
+
+```bash
+uv pip compile --universal --python-version 3.11 --no-annotate \
+  --output-file requirements.lock requirements.txt
+```
+
+The CI job installs FFmpeg with the runner's package manager, installs the
+locked Python dependencies, checks OpenCV/FFmpeg availability, and does not
+upload caches, input media, or generated outputs.
 
 ## Usage
 
@@ -193,3 +256,10 @@ add prompt IDs, categories, exact text targets, and subject requirements.
 - **Cohesion:** Visual anchors generated globally remain more consistent than those generated in isolated 10-second chunks.
 
 *Note: For processing full-length feature films (90+ minutes), a sliding-window chunking strategy is planned for v3.0.*
+
+## Planning
+
+Committed implementation work is tracked in the
+[NanoGhibli Linear project](https://linear.app/carteakey/project/nanoghibli-7904a51da414).
+Use `TODO.md` only for speculative ideas and research questions; do not mirror
+committed Linear issues there.
