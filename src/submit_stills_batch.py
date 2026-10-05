@@ -30,7 +30,10 @@ def main() -> int:
     parser.add_argument("--model", default="nano-banana-2")
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--top_p", type=float, default=0.95)
-    parser.add_argument("--top_k", type=int, default=40)
+    parser.add_argument("--vertexai", "--use_vertex", "--enterprise", dest="vertexai", action="store_true", default=None)
+    parser.add_argument("--project", default=None)
+    parser.add_argument("--location", default=None)
+    parser.add_argument("--credentials", default=None)
     args = parser.parse_args()
 
     load_dotenv(Path(".env"))
@@ -51,7 +54,13 @@ def main() -> int:
         for i, path in enumerate(frames)
     ]
 
-    client = genai.Client()
+    from genai_client import get_genai_client
+    client = get_genai_client(
+        use_vertexai=args.vertexai,
+        project=args.project,
+        location=args.location,
+        credentials_path=args.credentials,
+    )
     job_name, resumed = batch_stylizer.get_or_submit_job(
         client,
         items,

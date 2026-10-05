@@ -1,6 +1,6 @@
 import logging
 import threading
-from typing import TypedDict, List, Dict, Tuple
+from typing import TypedDict, List, Dict, Tuple, Optional
 
 # Pricing reference: api-pricing.md (Google Gemini API, paid tier, standard pricing,
 # prompts <= 200k tokens). Update alongside that doc.
@@ -61,8 +61,9 @@ def _split_key(key: str) -> Tuple[str, bool]:
 
 
 class UsageMetrics:
-    def __init__(self, model_tier: str = "flash"):
+    def __init__(self, model_tier: str = "flash", backend: Optional[str] = None):
         self.model_tier = model_tier
+        self.backend = backend
         self._lock = threading.Lock()
         self.tokens: Dict[str, Dict[str, int]] = {}
         self.images_by_model: Dict[str, int] = {}
@@ -164,10 +165,14 @@ class UsageMetrics:
             "=" * 44,
             f"   ESTIMATED SESSION COST ({self.model_tier.upper()})",
             "=" * 44,
+        ]
+        if self.backend:
+            lines.append(f"Backend                : {self.backend}")
+        lines.extend([
             f"Descriptions generated : {self.descriptions_generated}",
             f"Images stylized        : {self.total_images}",
             f"Veo videos             : {self.total_videos} ({self.total_video_seconds:.1f}s)",
-        ]
+        ])
         if self.tokens:
             lines.append("-" * 44)
             lines.append("Tokens by model:")

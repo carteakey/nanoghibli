@@ -31,11 +31,27 @@ NanoGhibli v2.2 moves beyond simple computer vision to a **"Director-First"** ar
    pip install -r requirements.txt
    ```
 
-2. **API Keys:**
-   Add your key to a `.env` file:
-   ```bash
-   GEMINI_API_KEY=your_key
-   ```
+2. **Authentication / Inference Backend:**
+   NanoGhibli supports both **Google Cloud Vertex AI (Gemini Enterprise Agent Platform)** and **Google AI Studio**.
+
+   - **Using Google Cloud ($300 Free Trial / Vertex AI)**:
+     If using your Google Cloud account trial (e.g. `theherdingdog@gmail.com`), configure your project in `.env`:
+     ```bash
+     GOOGLE_GENAI_USE_VERTEXAI=true
+     GOOGLE_CLOUD_PROJECT=your-google-cloud-project-id
+     GOOGLE_CLOUD_LOCATION=us-central1
+     ```
+     Authenticate via Application Default Credentials (ADC) or a Service Account:
+     ```bash
+     gcloud auth application-default login
+     ```
+     *(Or pass `--vertexai --project your-project-id` on the CLI).*
+
+   - **Using Google AI Studio**:
+     Add your direct API key to `.env`:
+     ```bash
+     GEMINI_API_KEY=your_key
+     ```
 
 ## Usage
 

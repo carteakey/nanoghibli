@@ -152,6 +152,11 @@ class TestUsageMetrics(unittest.TestCase):
         self.assertEqual(m.total_images, 8000)
         self.assertEqual(m.descriptions_generated, 8000)
 
+    def test_backend_display(self):
+        m = UsageMetrics(model_tier="flash", backend="Google Cloud Vertex AI (Project: test-proj)")
+        rendered = str(m)
+        self.assertIn("Backend                : Google Cloud Vertex AI (Project: test-proj)", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

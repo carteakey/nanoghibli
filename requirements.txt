@@ -3,6 +3,7 @@ scenedetect
 opencv-python
 google-genai
 google-api-core
+google-auth
 openai
 Pillow
 pillow-heif

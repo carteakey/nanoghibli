@@ -37,19 +37,29 @@ def get_video_script(client: genai.Client, video_path: str, session_dir: str, me
     proxy_path = os.path.join(session_dir, "analysis_proxy.mp4")
     proxy_path = create_lowres_proxy(video_path, proxy_path)
 
-    # 1. Upload to File API
-    logging.info(f"Uploading {proxy_path} to Gemini for analysis...")
-    video_file = client.files.upload(file=proxy_path)
-    
-    # Poll for completion
-    while video_file.state.name == "PROCESSING":
-        logging.info("Gemini is analyzing the video file...")
-        time.sleep(5)
-        video_file = client.files.get(name=video_file.name)
+    # 1. Prepare video content for Gemini
+    video_content = None
+    video_file = None
+    if getattr(client._api_client, "vertexai", False):
+        logging.info(f"Loading {proxy_path} as inline video for Vertex AI analysis...")
+        with open(proxy_path, "rb") as f:
+            video_bytes = f.read()
+        video_content = types.Part.from_bytes(data=video_bytes, mime_type="video/mp4")
+    else:
+        # Upload to File API (Gemini Developer API / AI Studio)
+        logging.info(f"Uploading {proxy_path} to Gemini for analysis...")
+        video_file = client.files.upload(file=proxy_path)
         
-    if video_file.state.name == "FAILED":
-        logging.error("Gemini video processing failed.")
-        return []
+        # Poll for completion
+        while video_file.state.name == "PROCESSING":
+            logging.info("Gemini is analyzing the video file...")
+            time.sleep(5)
+            video_file = client.files.get(name=video_file.name)
+            
+        if video_file.state.name == "FAILED":
+            logging.error("Gemini video processing failed.")
+            return []
+        video_content = video_file
 
     # 2. Ask the Director
     prompt = (
@@ -77,7 +87,7 @@ def get_video_script(client: genai.Client, video_path: str, session_dir: str, me
     try:
         response = client.models.generate_content(
             model=director_model,
-            contents=[video_file, prompt],
+            contents=[video_content, prompt],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.2 # Lower temperature for structural accuracy
@@ -97,7 +107,8 @@ def get_video_script(client: genai.Client, video_path: str, session_dir: str, me
             logging.debug(f"Raw Response: {response.text}")
         return []
     finally:
-        try:
-            client.files.delete(name=video_file.name)
-        except Exception as e:
-            logging.debug(f"Could not delete uploaded file {video_file.name}: {e}")
+        if video_file is not None:
+            try:
+                client.files.delete(name=video_file.name)
+            except Exception as e:
+                logging.debug(f"Could not delete uploaded file {video_file.name}: {e}")

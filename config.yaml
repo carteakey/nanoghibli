@@ -30,3 +30,11 @@ processing:
   batch_enabled: false
   batch_poll_interval: 30       # seconds between client.batches.get polls
   batch_max_wait_hours: 24.0    # hard stop on how long to wait
+
+# Google Cloud / Vertex AI (Gemini Enterprise Agent Platform)
+# Configure this to use your Google Cloud project and $300 free trial credits.
+google_cloud:
+  use_vertexai: false           # Set to true to route inference to Vertex AI instead of AI Studio
+  project: null                 # Your Google Cloud Project ID (e.g. "my-project-123" or set GOOGLE_CLOUD_PROJECT)
+  location: "us-central1"       # Google Cloud region (or set GOOGLE_CLOUD_LOCATION)
+  credentials: null             # Optional path to service account key JSON (or set GOOGLE_APPLICATION_CREDENTIALS)

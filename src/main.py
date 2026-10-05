@@ -18,6 +18,7 @@ from stylizer import stylize_frames, get_scene_description, GHIBLI_PROMPT, get_f
 from animator import create_video_from_frames
 from veo_animator import generate_scene_video
 from director import get_video_script
+from genai_client import get_genai_client
 from models import UsageMetrics, QuotaExceededError
 from model_catalog import (
     model_cache_slug,
@@ -98,6 +99,13 @@ def _run_main():
     parser.add_argument("--skip_black_frames", action="store_true", help="Skip black frames during extraction.")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug logging.")
     
+    # Google Cloud / Vertex AI (Gemini Enterprise Agent Platform)
+    parser.add_argument("--vertexai", "--use_vertex", "--enterprise", dest="vertexai", action="store_true", default=None,
+                        help="Use Google Cloud Vertex AI (Gemini Enterprise Agent Platform) instead of Google AI Studio.")
+    parser.add_argument("--project", default=None, help="Google Cloud project ID (for Vertex AI / $300 trial).")
+    parser.add_argument("--location", default=None, help="Google Cloud region/location (default: us-central1).")
+    parser.add_argument("--credentials", default=None, help="Path to Google Cloud Service Account JSON credentials.")
+
     # Model parameters
     parser.add_argument("--stylizer_model", default=None, help="Single stylizer model or alias: flash, pro, pro-2k.")
     parser.add_argument("--stylizer_models", default=None, help="Comma-separated stylizer rotation list. Example: flash,pro-2k,pro")
@@ -136,13 +144,19 @@ def _run_main():
     top_p = pick(args.top_p, stylizer_cfg.get("top_p"), 0.95)
     top_k = pick(args.top_k, stylizer_cfg.get("top_k"), 40)
 
-    # Load environment variables
+    # Load environment variables and initialize Google GenAI client
     load_dotenv()
-    if not os.getenv("GEMINI_API_KEY"):
-        logging.error("GEMINI_API_KEY environment variable not set. Please set it in .env or your shell.")
+    try:
+        client = get_genai_client(
+            use_vertexai=args.vertexai,
+            project=args.project,
+            location=args.location,
+            credentials_path=args.credentials,
+            config=config,
+        )
+    except Exception as e:
+        logging.error(f"Authentication / Client initialization failed: {e}")
         return
-
-    client = genai.Client()
     
     # Model selection. A rotation list spreads image-generation requests across
     # model-specific daily buckets; a single model keeps historical behavior.
@@ -168,7 +182,13 @@ def _run_main():
         logging.error("OPENAI_API_KEY environment variable not set, but OpenAI stylizer rotation is enabled.")
         return
 
-    metrics = UsageMetrics(model_tier=model_tier)
+    is_vertex = getattr(client._api_client, "vertexai", False)
+    backend_desc = (
+        f"Google Cloud Vertex AI (Project: {getattr(client._api_client, 'project', 'default')})"
+        if is_vertex
+        else "Google AI Studio"
+    )
+    metrics = UsageMetrics(model_tier=model_tier, backend=backend_desc)
 
     cache_base = "data/cache"
     stylized_cache = os.path.join(cache_base, "stylized")
@@ -293,6 +313,14 @@ def _run_main():
                 scene_buckets.append({"scene": scene, "need": need, "done": done})
             save_scenes_progress()  # persist descriptions before expensive work
 
+            if batch_enabled and getattr(client._api_client, "vertexai", False):
+                logging.warning(
+                    "Gemini Batch API file upload is only supported on Google AI Studio. "
+                    "On Google Cloud Vertex AI, batch requires Google Cloud Storage (gs://) input/output. "
+                    "Automatically routing through concurrent multithreaded stylization with global caching."
+                )
+                batch_enabled = False
+
             if batch_enabled:
                 # Flatten all needed frames into per-model batch submissions.
                 stylize_items_by_model = defaultdict(list)
@@ -381,6 +409,7 @@ def _run_main():
                                 top_p=top_p, top_k=top_k,
                                 scene_description=scene_description,
                                 metrics=metrics,
+                                client=client,
                             ))
                     batch_results.extend(model_results)
 
@@ -426,6 +455,7 @@ def _run_main():
                                     top_p=top_p, top_k=top_k,
                                     scene_description=scene.get("description", ""),
                                     metrics=metrics,
+                                    client=client,
                                 )
                             b["done"].extend(new_stylized)
                     b["done"].sort(key=lambda x: x["original_frame_index"])
@@ -550,7 +580,8 @@ def _run_main():
                             seg_path,
                             duration_seconds=dur_str,
                             scene_description=scene.get("description", ""),
-                            metrics=metrics
+                            metrics=metrics,
+                            client=client,
                         )
                         if os.path.exists(seg_path):
                             veo_progress[seg_id] = {"state": "veo_done", "veo_path": seg_path, "dur_str": dur_str}

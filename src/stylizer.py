@@ -7,7 +7,7 @@ import base64
 import io
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
-from google.genai import types
+from google.genai import types, errors
 from google.api_core import exceptions
 from PIL import Image
 from tqdm import tqdm
@@ -15,6 +15,7 @@ from typing import List, Optional
 
 from models import FrameInfo, UsageMetrics, QuotaExceededError
 from model_catalog import model_cache_slug, model_provider
+from genai_client import get_genai_client
 
 try:
     from pillow_heif import register_heif_opener
@@ -165,7 +166,7 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
                 metrics.add_usage(response, model_id)
                 metrics.add_image(model_id)
             
-            for part in response.parts:
+            for part in (response.parts or []):
                 if getattr(part, 'thought', False):
                     continue
                 if part.inline_data is not None:
@@ -181,8 +182,14 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
                         "original_frame_index": orig_index
                     }
                     
-            logging.warning(f"No image returned for {input_path} on attempt {attempt+1}")
-        except exceptions.ResourceExhausted as e:
+            finish_reason = None
+            if getattr(response, "candidates", None) and len(response.candidates) > 0:
+                finish_reason = getattr(response.candidates[0], "finish_reason", None)
+            reason_str = f" (finish_reason: {finish_reason})" if finish_reason else ""
+            logging.warning(f"No image returned for {input_path} on attempt {attempt+1}{reason_str}")
+        except (exceptions.ResourceExhausted, errors.APIError) as e:
+            if isinstance(e, errors.APIError) and e.code != 429 and getattr(e, "status", None) != "RESOURCE_EXHAUSTED":
+                raise e
             error_msg = str(e).lower()
             if "quota" in error_msg or "per day" in error_msg:
                 logging.error(f"Daily quota hit for Stylizer: {e}. Exiting so you can resume later.")
@@ -213,7 +220,19 @@ def process_single_frame(client: genai.Client, frame_info: FrameInfo, output_dir
     logging.error(f"Failed to stylize {input_path} after {max_retries} attempts.")
     return None
 
-def stylize_frames(frames: List[FrameInfo], output_dir: str, model_id: str = "gemini-3.1-flash-image-preview", cache_dir: str = "data/cache/stylized", max_workers: int = 4, temperature: float = 0.7, top_p: float = 0.95, top_k: int = 40, scene_description: str = "", metrics: UsageMetrics = None) -> List[FrameInfo]:
+def stylize_frames(
+    frames: List[FrameInfo],
+    output_dir: str,
+    model_id: str = "gemini-3.1-flash-image-preview",
+    cache_dir: str = "data/cache/stylized",
+    max_workers: int = 4,
+    temperature: float = 0.7,
+    top_p: float = 0.95,
+    top_k: int = 40,
+    scene_description: str = "",
+    metrics: UsageMetrics = None,
+    client: Optional[genai.Client] = None,
+) -> List[FrameInfo]:
     """
     Takes a list of frame dicts and stylizes each concurrently using the Gemini API.
     Uses scene_description to maintain consistency.
@@ -223,7 +242,8 @@ def stylize_frames(frames: List[FrameInfo], output_dir: str, model_id: str = "ge
     if not os.path.exists(cache_dir):
         os.makedirs(cache_dir)
 
-    client = genai.Client()
+    if client is None:
+        client = get_genai_client()
     stylized_frames: List[FrameInfo] = []
     failed = 0
     quota_hit: Optional[QuotaExceededError] = None

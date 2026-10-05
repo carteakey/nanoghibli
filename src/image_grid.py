@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.api_core import exceptions
 from google.genai import types
+from genai_client import get_genai_client
 from PIL import Image
 
 from model_catalog import (
@@ -402,10 +403,13 @@ def run_grid(args: argparse.Namespace) -> None:
 
     client: Optional[genai.Client] = None
     needs_api = not args.prepare_only and not (args.score_existing and args.skip_score)
-    if needs_api and (not os.getenv("GEMINI_API_KEY")):
-        raise RuntimeError("GEMINI_API_KEY is required unless --prepare_only is used.")
     if needs_api:
-        client = genai.Client()
+        client = get_genai_client(
+            use_vertexai=args.vertexai,
+            project=args.project,
+            location=args.location,
+            credentials_path=args.credentials,
+        )
 
     metrics = UsageMetrics(model_tier="image_grid")
     rows: List[Dict[str, Any]] = []
@@ -478,6 +482,11 @@ def main() -> None:
     parser.add_argument("--skip_score", action="store_true", help="Generate images without judge scoring.")
     parser.add_argument("--include_manual", action="store_true", default=True, help="Include manual ChatGPT image placeholders.")
     parser.add_argument("--no_manual", dest="include_manual", action="store_false", help="Do not include manual ChatGPT placeholders.")
+    parser.add_argument("--vertexai", "--use_vertex", "--enterprise", dest="vertexai", action="store_true", default=None,
+                        help="Use Google Cloud Vertex AI (Gemini Enterprise Agent Platform) instead of Google AI Studio.")
+    parser.add_argument("--project", default=None, help="Google Cloud project ID (for Vertex AI / $300 trial).")
+    parser.add_argument("--location", default=None, help="Google Cloud region/location (default: us-central1).")
+    parser.add_argument("--credentials", default=None, help="Path to Google Cloud Service Account JSON credentials.")
     parser.add_argument("--max_retries", type=int, default=3)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()

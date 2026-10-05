@@ -29,10 +29,20 @@ def main() -> int:
     parser.add_argument("--poll", action="store_true")
     parser.add_argument("--poll_interval", type=int, default=30)
     parser.add_argument("--max_wait_hours", type=float, default=24.0)
+    parser.add_argument("--vertexai", "--use_vertex", "--enterprise", dest="vertexai", action="store_true", default=None)
+    parser.add_argument("--project", default=None)
+    parser.add_argument("--location", default=None)
+    parser.add_argument("--credentials", default=None)
     args = parser.parse_args()
 
     load_dotenv(Path(".env"))
-    client = genai.Client()
+    from genai_client import get_genai_client
+    client = get_genai_client(
+        use_vertexai=args.vertexai,
+        project=args.project,
+        location=args.location,
+        credentials_path=args.credentials,
+    )
 
     frames = _image_paths(args.input_dir)
     if not frames:
